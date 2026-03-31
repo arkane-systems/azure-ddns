@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,10 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "DNS_SUBSCRIPTION_ID": "00000000-0000-0000-0000-000000000000",
+    "DNS_RESOURCE_GROUP": "rg-dns-shared",
+    "CONFIG_PATH": "config/dyndns.json"
+  }
+}

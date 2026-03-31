@@ -1,0 +1,23 @@
+{
+  "zones": {
+    "example.com": {
+      "ttl": 300
+    }
+  },
+  "clients": [
+    {
+      "name": "home-router",
+      "keyHash": "replace-with-sha256-hex",
+      "allowedRecords": [
+        {
+          "zone": "example.com",
+          "name": "home"
+        },
+        {
+          "zone": "example.com",
+          "name": "*"
+        }
+      ]
+    }
+  ]
+}

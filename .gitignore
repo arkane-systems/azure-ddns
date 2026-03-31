@@ -1,0 +1,23 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.cache
+*.nupkg
+TestResults/
+.artifacts/
+packages/
+local.settings.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Tooling
+coverage/
+*.coverage
+*.coveragexml
+
+# Azure Functions
+.azurefunctions/
