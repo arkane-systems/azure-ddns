@@ -13,9 +13,10 @@
 
 #region using
 
-using AzureDdns.FunctionApp.Config;
 using System.Security.Cryptography;
 using System.Text;
+
+using AzureDdns.FunctionApp.Config;
 
 #endregion
 
@@ -30,7 +31,7 @@ public interface IAuthService
     /// <param name="rawKey">Raw key supplied by the DDNS caller.</param>
     /// <param name="config">Current DDNS configuration snapshot.</param>
     /// <returns>
-    ///     The authenticated client configuration when credentials are valid; otherwise <see langword="null"/>.
+    ///     The authenticated client configuration when credentials are valid; otherwise <see langword="null" />.
     /// </returns>
     ClientConfig? Authenticate (string clientName, string rawKey, DyndnsConfig config);
 
@@ -40,7 +41,7 @@ public interface IAuthService
     /// <param name="client">Authenticated client configuration.</param>
     /// <param name="zone">Requested DNS zone.</param>
     /// <param name="name">Requested record name.</param>
-    /// <returns><see langword="true"/> when the record is explicitly allowed; otherwise <see langword="false"/>.</returns>
+    /// <returns><see langword="true" /> when the record is explicitly allowed; otherwise <see langword="false" />.</returns>
     bool IsRecordAuthorized (ClientConfig client, string zone, string name);
 }
 
