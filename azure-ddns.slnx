@@ -5,4 +5,7 @@
   <Folder Name="/src/">
     <Project Path="src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AzureDdns.FunctionApp.Tests/AzureDdns.FunctionApp.Tests.csproj" />
+  </Folder>
 </Solution>
