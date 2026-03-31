@@ -1,24 +1,49 @@
+#region header
+
+// AzureDdns.FunctionApp - Program.cs
+// 
+// Alistair J. R. Young
+// Arkane Systems
+// 
+// Copyright Arkane Systems 2012-2018.  All rights reserved.
+// 
+// Created: 2026-03-30 7:40 PM
+
+#endregion
+
+#region using
+
 using AzureDdns.FunctionApp.Config;
 using AzureDdns.FunctionApp.Services;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-var host = new HostBuilder()
-    .ConfigureFunctionsWebApplication()
-    .ConfigureServices(services =>
-    {
-        services.AddOptions<RuntimeSettings>().Configure(options =>
-        {
-            options.DnsSubscriptionId = Environment.GetEnvironmentVariable("DNS_SUBSCRIPTION_ID") ?? string.Empty;
-            options.DnsResourceGroup = Environment.GetEnvironmentVariable("DNS_RESOURCE_GROUP") ?? string.Empty;
-            options.ConfigPath = Environment.GetEnvironmentVariable("CONFIG_PATH") ?? "config/dyndns.json";
-        });
+#endregion
 
-        services.AddSingleton<IConfigProvider, FileConfigProvider>();
-        services.AddSingleton<IAuthService, AuthService>();
-        services.AddSingleton<IIpResolver, IpResolver>();
-        services.AddSingleton<IDnsUpdateService, DnsUpdateService>();
-    })
-    .Build();
+IHost host = new HostBuilder ()
+            .ConfigureFunctionsWebApplication ()
+            .ConfigureServices (services =>
+                                {
+                                    services.AddOptions <RuntimeSettings> ()
+                                            .Configure (options =>
+                                                        {
+                                                            options.DnsSubscriptionId =
+                                                                Environment.GetEnvironmentVariable ("DNS_SUBSCRIPTION_ID") ??
+                                                                string.Empty ;
+                                                            options.DnsResourceGroup =
+                                                                Environment.GetEnvironmentVariable ("DNS_RESOURCE_GROUP") ??
+                                                                string.Empty ;
+                                                            options.ConfigPath =
+                                                                Environment.GetEnvironmentVariable ("CONFIG_PATH") ??
+                                                                "config/dyndns.json" ;
+                                                        }) ;
 
-await host.RunAsync();
+                                    services.AddSingleton <IConfigProvider, FileConfigProvider> () ;
+                                    services.AddSingleton <IAuthService, AuthService> () ;
+                                    services.AddSingleton <IIpResolver, IpResolver> () ;
+                                    services.AddSingleton <IDnsUpdateService, DnsUpdateService> () ;
+                                })
+            .Build () ;
+
+await host.RunAsync ();

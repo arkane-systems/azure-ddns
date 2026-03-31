@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="docs/deployment-plan.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj" />
   </Folder>
