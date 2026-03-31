@@ -51,7 +51,7 @@ public sealed class FileConfigProvider (IOptions<RuntimeSettings> settings) : IC
   ///   Loads and deserializes DDNS configuration from the configured file path.
   /// </summary>
   /// <param name="cancellationToken">Cancellation token for file stream read/deserialization.</param>
-  /// <returns>Loaded configuration, or empty configuration when file does not exist.</returns>
+  /// <returns>Loaded configuration, or empty configuration when file does not exist or cannot be parsed.</returns>
   public async Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default)
   {
     // Relative paths are resolved from app base directory so packaged config works in Azure and local runs.
@@ -62,11 +62,20 @@ public sealed class FileConfigProvider (IOptions<RuntimeSettings> settings) : IC
     if (!File.Exists (fullPath))
       return new DyndnsConfig ();
 
-    await using FileStream stream = File.OpenRead (fullPath);
+    try
+    {
+      await using FileStream stream = File.OpenRead (fullPath);
 
-    return await JsonSerializer.DeserializeAsync<DyndnsConfig> (utf8Json: stream,
-                                                                options: SerializerOptions,
-                                                                cancellationToken: cancellationToken) ??
-           new DyndnsConfig ();
+      return await JsonSerializer.DeserializeAsync<DyndnsConfig> (utf8Json: stream,
+                                                                   options: SerializerOptions,
+                                                                   cancellationToken: cancellationToken) ??
+             new DyndnsConfig ();
+    }
+    catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+    {
+      // Treat a missing or unreadable config file the same as an empty one so the function can return
+      // "zone not configured" rather than an unhandled 500.  The caller should not log raw config content.
+      return new DyndnsConfig ();
+    }
   }
 }

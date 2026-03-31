@@ -1,6 +1,6 @@
 {
   "zones": {
-    "example.com": {
+    "arkane-systems.net": {
       "ttl": 300
     }
   },

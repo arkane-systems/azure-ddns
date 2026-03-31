@@ -15,6 +15,8 @@
 
 using System.Net;
 
+using Azure;
+
 using AzureDdns.FunctionApp.Config;
 using AzureDdns.FunctionApp.Functions;
 using AzureDdns.FunctionApp.Services;
@@ -40,6 +42,37 @@ public sealed class UpdateDnsFunctionTests
                                                    ZoneConfig        zoneConfig,
                                                    CancellationToken cancellationToken = default)
             => throw new InvalidOperationException ("Should not be called in validation tests.");
+    }
+
+    #endregion
+
+    #region Nested type: StubDnsUpdateService
+
+    /// <summary>
+    ///   DNS update service stub that returns a configurable result or throws a specified exception.
+    /// </summary>
+    private sealed class StubDnsUpdateService : IDnsUpdateService
+    {
+        public StubDnsUpdateService (UpdateDnsResult? result = null, Exception? exception = null)
+        {
+            this._result    = result;
+            this._exception = exception;
+        }
+
+        private readonly Exception?      _exception;
+        private readonly UpdateDnsResult? _result;
+
+        public Task <UpdateDnsResult> UpdateAsync (string            zone,
+                                                   string            name,
+                                                   IPAddress         ipAddress,
+                                                   ZoneConfig        zoneConfig,
+                                                   CancellationToken cancellationToken = default)
+        {
+            if (this._exception is not null)
+                throw this._exception;
+
+            return Task.FromResult (this._result!);
+        }
     }
 
     #endregion
@@ -136,12 +169,90 @@ public sealed class UpdateDnsFunctionTests
         Assert.Equal (expected: "ERROR: unauthorized record",   actual: content.Content);
     }
 
-    private static UpdateDnsFunction CreateFunction (DyndnsConfig config, bool isAuthorized, bool isRecordAuthorized = true)
+    [Fact]
+    public async Task RunAsync_ReturnsOk_WhenUpdateSucceeds ()
+    {
+        var config = new DyndnsConfig { Zones = { ["example.com"] = new ZoneConfig { Ttl = 300 }, }, };
+        var dnsResult = new UpdateDnsResult (RecordType: "A", Fqdn: "home.example.com", IpAddress: "203.0.113.10");
+
+        UpdateDnsFunction function = CreateFunction (config:          config,
+                                                     isAuthorized:    true,
+                                                     dnsUpdateResult: dnsResult);
+        HttpRequest request = CreateRequest (new Dictionary <string, string?>
+                                             {
+                                                 ["client"] = "home-router",
+                                                 ["key"]    = "ok",
+                                                 ["zone"]   = "example.com",
+                                                 ["name"]   = "home",
+                                             });
+
+        IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+        var content = Assert.IsType <ContentResult> (result);
+        Assert.Equal (expected: StatusCodes.Status200OK,                              actual: content.StatusCode);
+        Assert.Equal (expected: "OK: updated A home.example.com to 203.0.113.10", actual: content.Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_ReturnsBadGateway_WhenRequestFailedException ()
+    {
+        var config = new DyndnsConfig { Zones = { ["example.com"] = new ZoneConfig { Ttl = 300 }, }, };
+        var azureException = new RequestFailedException (status: 503, message: "Service unavailable");
+
+        UpdateDnsFunction function = CreateFunction (config:            config,
+                                                     isAuthorized:      true,
+                                                     dnsUpdateException: azureException);
+        HttpRequest request = CreateRequest (new Dictionary <string, string?>
+                                             {
+                                                 ["client"] = "home-router",
+                                                 ["key"]    = "ok",
+                                                 ["zone"]   = "example.com",
+                                                 ["name"]   = "home",
+                                             });
+
+        IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+        var content = Assert.IsType <ContentResult> (result);
+        Assert.Equal (expected: StatusCodes.Status502BadGateway,    actual: content.StatusCode);
+        Assert.Equal (expected: "ERROR: dns update failed",         actual: content.Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_NormalizesZone_WhenTrailingDotPresent ()
+    {
+        var config = new DyndnsConfig { Zones = { ["example.com"] = new ZoneConfig { Ttl = 300 }, }, };
+        var dnsResult = new UpdateDnsResult (RecordType: "A", Fqdn: "home.example.com", IpAddress: "203.0.113.10");
+
+        UpdateDnsFunction function = CreateFunction (config:          config,
+                                                     isAuthorized:    true,
+                                                     dnsUpdateResult: dnsResult);
+        // Fully-qualified zone name should be normalized before config lookup and auth.
+        HttpRequest request = CreateRequest (new Dictionary <string, string?>
+                                             {
+                                                 ["client"] = "home-router",
+                                                 ["key"]    = "ok",
+                                                 ["zone"]   = "example.com.",
+                                                 ["name"]   = "home",
+                                             });
+
+        IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+        var content = Assert.IsType <ContentResult> (result);
+        Assert.Equal (expected: StatusCodes.Status200OK, actual: content.StatusCode);
+    }
+
+    private static UpdateDnsFunction CreateFunction (DyndnsConfig      config,
+                                                     bool              isAuthorized,
+                                                     bool              isRecordAuthorized  = true,
+                                                     UpdateDnsResult?  dnsUpdateResult     = null,
+                                                     Exception?        dnsUpdateException  = null)
     {
         IConfigProvider   configProvider = new StaticConfigProvider (config);
         IAuthService      authService = new StubAuthService (isAuthorized: isAuthorized, isRecordAuthorized: isRecordAuthorized);
         IIpResolver       ipResolver = new IpResolver ();
-        IDnsUpdateService dnsUpdateService = new NoopDnsUpdateService ();
+        IDnsUpdateService dnsUpdateService = dnsUpdateResult is not null || dnsUpdateException is not null
+                                              ? new StubDnsUpdateService (result: dnsUpdateResult, exception: dnsUpdateException)
+                                              : new NoopDnsUpdateService ();
 
         return new UpdateDnsFunction (configProvider: configProvider,
                                       authService: authService,

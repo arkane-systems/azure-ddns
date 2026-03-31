@@ -91,6 +91,10 @@ public sealed class UpdateDnsFunction
     if (name is null)
       return Error (statusCode: StatusCodes.Status400BadRequest, message: "missing name");
 
+    // Normalize zone: trim whitespace and remove a trailing dot to accept fully-qualified names.
+    // This must be done before config lookup and auth so all three use the same canonical form.
+    zone = zone.Trim ().TrimEnd ('.');
+
     DyndnsConfig config = await this.configProvider.GetConfigAsync (cancellationToken);
     ZoneConfig? zoneConfig =
       config.Zones.GetValueOrDefault (zone);
