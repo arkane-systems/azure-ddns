@@ -1,0 +1,11 @@
+name: azure-ddns
+metadata:
+  template: azure-ddns@0.0.1
+infra:
+  provider: bicep
+  path: infra
+services:
+  ddns-updater:
+    project: src/AzureDdns.FunctionApp
+    language: dotnet
+    host: function

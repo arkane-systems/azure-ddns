@@ -1,58 +1,163 @@
-# Azure DDNS deployment plan
+# Azure DDNS deployment runbook
 
-## Target platform
+This document is the operational playbook for deploying and validating this project.
+
+## 0) GitHub workflow model (manual and split)
+
+This repository uses two manually triggered workflows to keep infrastructure and app deployments independent:
+
+1. `Deploy Infrastructure` (`.github/workflows/deploy-infrastructure.yml`)
+2. `Deploy Application` (`.github/workflows/deploy-application.yml`)
+
+Both workflows support deploy-time ref selection (`ref` input), so you can deploy from a specific branch, tag, or commit SHA.
+
+### Required repository secrets
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+These are used for OIDC-based login via `azure/login@v2`.
+
+## 1) Deployment target and assumptions
 
 - Azure Functions Flex Consumption
 - .NET 8 isolated worker
-- Azure DNS zones hosted in one subscription and one resource group
-- System-assigned managed identity for DNS updates
+- Function app configuration file packaged with app (`config/dyndns.json`)
+- Azure DNS zones already exist (often in a shared DNS resource group)
+- Function app uses system-assigned managed identity for Azure DNS updates
 
-## Required Azure resources
+## 2) What infrastructure is provisioned
 
-1. Resource group for the Function App hosting resources if one does not already exist.
-2. Function App on Flex Consumption.
-3. Storage account created as part of the Functions deployment.
-4. Application Insights instance for telemetry.
-5. Existing Azure DNS zones in the target subscription and resource group.
+From `infra/main.bicep`:
 
-## Required application settings
+1. Storage account (Functions host + deployment container)
+2. Blob container `function-releases` for one-deploy package source
+3. Log Analytics workspace
+4. Application Insights (workspace-based)
+5. Flex Consumption plan (`FC1`)
+6. Function App (Linux, `dotnet-isolated` runtime)
+7. Storage Blob Data Owner role assignment for function managed identity on storage account
+8. Optional DNS Zone Contributor role assignments per DNS zone (when `dnsZoneNames` is populated)
 
-- `DNS_SUBSCRIPTION_ID`
-- `DNS_RESOURCE_GROUP`
-- `CONFIG_PATH`
+## 3) Parameter reference (`infra/main.parameters.json`)
 
-Recommended additions:
+### Required
+
+| Parameter | Description | Example |
+|---|---|---|
+| `baseName` | Base token used to derive default resource names | `azddns` |
+| `environmentName` | Environment label used for naming and app environment setting | `dev`, `test`, `prod` |
+| `location` | Azure region for app resources | `westeurope` |
+| `dnsSubscriptionId` | Subscription containing target DNS zones | `00000000-0000-0000-0000-000000000000` |
+| `dnsResourceGroup` | Resource group containing target DNS zones | `rg-dns-shared` |
+
+### Optional
+
+| Parameter | Description | Behavior when empty |
+|---|---|---|
+| `functionAppName` | Explicit Function App name override | Derived from `baseName`/`environmentName` |
+| `storageAccountName` | Explicit Storage Account name override | Derived from `baseName`/`environmentName` |
+| `appInsightsName` | Explicit App Insights name override | Derived from `baseName`/`environmentName` |
+| `logAnalyticsWorkspaceName` | Explicit Log Analytics name override | Derived from `baseName`/`environmentName` |
+| `functionPlanName` | Explicit Flex plan name override | Derived from `baseName`/`environmentName` |
+| `dnsZoneNames` | DNS zones for zone-scoped DNS RBAC assignment | No DNS zone role assignments created |
+
+## 4) Application settings configured by IaC
+
+These are set in `siteConfig.appSettings` during deployment:
 
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
-- `AZURE_FUNCTIONS_ENVIRONMENT`
+- `FUNCTIONS_EXTENSION_VERSION` (`~4`)
+- `FUNCTIONS_WORKER_RUNTIME` (`dotnet-isolated`)
+- `AZURE_FUNCTIONS_ENVIRONMENT` (from `environmentName`)
+- `DNS_SUBSCRIPTION_ID`
+- `DNS_RESOURCE_GROUP`
+- `CONFIG_PATH` (`config/dyndns.json`)
+- `AzureWebJobsStorage`
 
-## Identity and access
+No manual portal configuration is required for these values in normal deployments.
 
-1. Enable the Function App system-assigned managed identity.
-2. Grant `DNS Zone Contributor` to that identity on the resource group containing the DNS zones.
-3. Review scope to ensure the identity cannot modify unrelated Azure resources.
+## 5) Pre-deployment checklist
 
-## Configuration deployment
+1. Confirm you are in the correct Azure tenant/subscription context.
+2. Ensure DNS zones already exist in `dnsSubscriptionId` / `dnsResourceGroup`.
+3. Decide whether to assign zone-scoped RBAC now:
+   - keep `dnsZoneNames` empty to skip
+   - populate with zone names to assign automatically
+4. Confirm `dyndns.json` contains only hashed keys.
+5. Validate Bicep template:
+   - `az bicep build --file infra/main.bicep`
 
-1. Package `config/dyndns.json` with the application content or deploy an environment-specific version during release.
-2. Store only hashed client keys in the configuration file.
-3. Keep raw keys outside source control and distribute them directly to DDNS clients.
+## 6) Deploy infrastructure (step-by-step)
 
-## Validation checklist
+### Option A: Azure CLI deployment
 
-1. Deploy the function app.
-2. Confirm the managed identity has propagated.
-3. Issue a test IPv4 update request.
-4. Issue a test IPv6 update request.
-5. Verify that `A` and `AAAA` record updates remain independent.
-6. Verify unauthorized client, zone, and record requests are rejected.
-7. Verify logs capture client name, zone, record, resolved IP, and mismatch events without logging raw keys.
+1. Set/confirm parameter values in `infra/main.parameters.json`.
+2. Deploy to your app resource group:
 
-## Future automation
+```pwsh
+az deployment group create --resource-group <app-resource-group> --template-file infra/main.bicep --parameters @infra/main.parameters.json
+```
 
-When implementation is complete, add:
+### Option B: Azure Developer CLI flow
 
-- infrastructure-as-code for Flex Consumption deployment
-- CI workflow for build and test
-- deployment workflow for packaging and release
-- configuration promotion strategy per environment
+1. Ensure `azure.yaml` is present and points to `infra/`.
+2. Configure environment values if needed.
+3. Run:
+
+```pwsh
+azd up
+```
+
+## 7) Post-deployment steps
+
+1. Deploy function app code package (if infra-only deployment was used).
+2. Confirm Function App system-assigned identity exists.
+3. If `dnsZoneNames` was left empty, assign DNS permissions manually when ready.
+4. If `dnsZoneNames` was set, verify role assignments exist at each zone scope.
+
+## 8) Post-deployment validation procedures
+
+### A. Infrastructure validation
+
+1. Function app is Running.
+2. App settings are present and match expected values.
+3. Application Insights receives traces.
+4. Storage account and `function-releases` container exist.
+
+### B. Functional validation
+
+Perform from a client/network path representing your DDNS caller:
+
+1. Valid IPv4 update request.
+2. Valid IPv6 update request.
+3. Invalid key request returns `401`.
+4. Unauthorized record request returns `403`.
+5. Unknown zone request returns `400`.
+
+Expected behavior:
+
+- `A` and `AAAA` updates remain independent.
+- Responses are plain-text `OK:`/`ERROR:`.
+
+### C. Logging and security validation
+
+1. Logs include client/zone/record/IP context.
+2. Logs do not contain raw client keys.
+3. Identity permissions are least-privilege:
+   - storage access needed for deployment/runtime
+   - DNS zone scope only where required
+
+## 9) Troubleshooting quick notes
+
+- `ERROR: zone not configured` -> zone key missing in `dyndns.json`.
+- `ERROR: invalid credentials` -> client name/hash mismatch.
+- `ERROR: dns update failed` -> missing/incorrect RBAC or DNS resource reference issues.
+- `ERROR: server configuration invalid` -> missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.).
+
+## 10) Suggested ongoing operations
+
+- Keep `infra/main.parameters.json` values per environment under controlled change process.
+- Rotate client keys periodically by updating `keyHash` values and redeploying code package.
+- Re-run the functional validation suite after any config or RBAC changes.

@@ -1,21 +1,21 @@
 {
   "zones": {
-    "example.com": {
+    "arkane-systems.net": {
       "ttl": 300
     }
   },
   "clients": [
     {
-      "name": "home-router",
-      "keyHash": "replace-with-sha256-hex",
+      "name": "stargate",
+      "keyHash": "6ae734fab022e710bfe5342d2034ad10ef778cf74283ef2b8bbf63be66dc33bf",
       "allowedRecords": [
         {
-          "zone": "example.com",
-          "name": "home"
+          "zone": "arkane-systems.net",
+          "name": "stargate"
         },
         {
-          "zone": "example.com",
-          "name": "*"
+          "zone": "arkane-systems.net",
+          "name": "smoke"
         }
       ]
     }
