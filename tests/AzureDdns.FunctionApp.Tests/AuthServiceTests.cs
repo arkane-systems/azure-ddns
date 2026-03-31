@@ -22,7 +22,7 @@ namespace AzureDdns.FunctionApp.Tests;
 
 public sealed class AuthServiceTests
 {
-    private readonly AuthService _authService = new () ;
+    private readonly AuthService _authService = new ();
 
     [Fact]
     public void Authenticate_ReturnsClient_ForValidNameAndKey ()
@@ -38,9 +38,9 @@ public sealed class AuthServiceTests
                                  AllowedRecords = [new AllowedRecordConfig { Zone = "example.com", Name = "home", },],
                              },
                          ],
-        } ;
+        };
 
-        ClientConfig? result = this._authService.Authenticate (clientName: "home-router", rawKey: "secret-key", config: config) ;
+        ClientConfig? result = this._authService.Authenticate (clientName: "home-router", rawKey: "secret-key", config: config);
 
         Assert.NotNull (result);
         Assert.Equal (expected: "home-router", actual: result.Name);
@@ -55,9 +55,9 @@ public sealed class AuthServiceTests
                          [
                              new ClientConfig { Name = "home-router", KeyHash = AuthService.ComputeSha256 ("secret-key"), },
                          ],
-        } ;
+        };
 
-        ClientConfig? result = this._authService.Authenticate (clientName: "home-router", rawKey: "wrong-key", config: config) ;
+        ClientConfig? result = this._authService.Authenticate (clientName: "home-router", rawKey: "wrong-key", config: config);
 
         Assert.Null (result);
     }
@@ -69,9 +69,9 @@ public sealed class AuthServiceTests
         {
             Name = "home-router",
             AllowedRecords = [new AllowedRecordConfig { Zone = "example.com", Name = "*", },],
-        } ;
+        };
 
-        bool result = this._authService.IsRecordAuthorized (client: client, zone: "example.com", name: "kitchen") ;
+        bool result = this._authService.IsRecordAuthorized (client: client, zone: "example.com", name: "kitchen");
 
         Assert.True (result);
     }
@@ -83,9 +83,9 @@ public sealed class AuthServiceTests
         {
             Name = "home-router",
             AllowedRecords = [new AllowedRecordConfig { Zone = "example.com", Name = "home", },],
-        } ;
+        };
 
-        bool result = this._authService.IsRecordAuthorized (client: client, zone: "other.com", name: "home") ;
+        bool result = this._authService.IsRecordAuthorized (client: client, zone: "other.com", name: "home");
 
         Assert.False (result);
     }

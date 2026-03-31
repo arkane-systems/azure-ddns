@@ -1,8 +1,21 @@
+#region header
+
+// AzureDdns.FunctionApp - DyndnsConfig.cs
+// 
+// Alistair J. R. Young
+// Arkane Systems
+// 
+// Copyright Arkane Systems 2012-2018.  All rights reserved.
+// 
+// Created: 2026-03-30 10:16 PM
+
+#endregion
+
 namespace AzureDdns.FunctionApp.Config;
 
 public sealed class DyndnsConfig
 {
-    public Dictionary<string, ZoneConfig> Zones { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ZoneConfig> Zones { get; init; } = new (StringComparer.OrdinalIgnoreCase);
 
     public List<ClientConfig> Clients { get; init; } = [];
 }

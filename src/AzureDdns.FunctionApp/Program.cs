@@ -7,7 +7,7 @@
 // 
 // Copyright Arkane Systems 2012-2018.  All rights reserved.
 // 
-// Created: 2026-03-30 7:40 PM
+// Created: 2026-03-30 10:16 PM
 
 #endregion
 
@@ -30,20 +30,20 @@ IHost host = new HostBuilder ()
                                                         {
                                                             options.DnsSubscriptionId =
                                                                 Environment.GetEnvironmentVariable ("DNS_SUBSCRIPTION_ID") ??
-                                                                string.Empty ;
+                                                                string.Empty;
                                                             options.DnsResourceGroup =
                                                                 Environment.GetEnvironmentVariable ("DNS_RESOURCE_GROUP") ??
-                                                                string.Empty ;
+                                                                string.Empty;
                                                             options.ConfigPath =
                                                                 Environment.GetEnvironmentVariable ("CONFIG_PATH") ??
-                                                                "config/dyndns.json" ;
-                                                        }) ;
+                                                                "config/dyndns.json";
+                                                        });
 
-                                    services.AddSingleton <IConfigProvider, FileConfigProvider> () ;
-                                    services.AddSingleton <IAuthService, AuthService> () ;
-                                    services.AddSingleton <IIpResolver, IpResolver> () ;
-                                    services.AddSingleton <IDnsUpdateService, DnsUpdateService> () ;
+                                    services.AddSingleton <IConfigProvider, FileConfigProvider> ();
+                                    services.AddSingleton <IAuthService, AuthService> ();
+                                    services.AddSingleton <IIpResolver, IpResolver> ();
+                                    services.AddSingleton <IDnsUpdateService, DnsUpdateService> ();
                                 })
-            .Build () ;
+            .Build ();
 
 await host.RunAsync ();

@@ -38,12 +38,12 @@ public sealed class AuthService : IAuthService
         ClientConfig? client =
             config.Clients.FirstOrDefault (candidate => string.Equals (a: candidate.Name,
                                                                        b: clientName,
-                                                                       comparisonType: StringComparison.OrdinalIgnoreCase)) ;
+                                                                       comparisonType: StringComparison.OrdinalIgnoreCase));
 
         if (client is null || string.IsNullOrWhiteSpace (client.KeyHash))
             return null;
 
-        string providedHash = ComputeSha256 (rawKey) ;
+        string providedHash = ComputeSha256 (rawKey);
 
         return CryptographicOperations.FixedTimeEquals (left: Encoding.UTF8.GetBytes (providedHash),
                                                         right: Encoding.UTF8.GetBytes (client.KeyHash.Trim ().ToLowerInvariant ()))
@@ -68,7 +68,7 @@ public sealed class AuthService : IAuthService
 
     public static string ComputeSha256 (string value)
     {
-        byte[] bytes = SHA256.HashData (Encoding.UTF8.GetBytes (value)) ;
+        byte[] bytes = SHA256.HashData (Encoding.UTF8.GetBytes (value));
 
         return Convert.ToHexString (bytes).ToLowerInvariant ();
     }

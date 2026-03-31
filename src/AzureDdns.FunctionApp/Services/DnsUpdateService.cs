@@ -45,8 +45,8 @@ public sealed class DnsUpdateService : IDnsUpdateService
         this._armClient = new ArmClient (new DefaultAzureCredential ());
     }
 
-    private readonly ArmClient       _armClient ;
-    private readonly RuntimeSettings _settings ;
+    private readonly ArmClient       _armClient;
+    private readonly RuntimeSettings _settings;
 
     public async Task<UpdateDnsResult> UpdateAsync (string zone,
                                                      string name,
@@ -58,19 +58,19 @@ public sealed class DnsUpdateService : IDnsUpdateService
             string.IsNullOrWhiteSpace (this._settings.DnsResourceGroup))
             throw new InvalidOperationException ("DNS_SUBSCRIPTION_ID and DNS_RESOURCE_GROUP must be configured.");
 
-        string normalizedZone = zone.Trim ().TrimEnd ('.') ;
-        string relativeName   = string.IsNullOrWhiteSpace (name) ? "@" : name.Trim () ;
-        long   ttl            = zoneConfig.Ttl > 0 ? zoneConfig.Ttl : 300 ;
+        string normalizedZone = zone.Trim ().TrimEnd ('.');
+        string relativeName   = string.IsNullOrWhiteSpace (name) ? "@" : name.Trim ();
+        long   ttl            = zoneConfig.Ttl > 0 ? zoneConfig.Ttl : 300;
 
         ResourceIdentifier? zoneId = DnsZoneResource.CreateResourceIdentifier (subscriptionId: this._settings.DnsSubscriptionId,
                                                                                resourceGroupName: this._settings.DnsResourceGroup,
-                                                                               zoneName: normalizedZone) ;
-        DnsZoneResource zoneResource = this._armClient.GetDnsZoneResource (zoneId) ;
+                                                                               zoneName: normalizedZone);
+        DnsZoneResource zoneResource = this._armClient.GetDnsZoneResource (zoneId);
 
         switch (ipAddress.AddressFamily)
         {
             case AddressFamily.InterNetwork:
-                var aData = new DnsARecordData { TtlInSeconds           = ttl, } ;
+                var aData = new DnsARecordData { TtlInSeconds           = ttl, };
                 aData.DnsARecords.Add (new DnsARecordInfo { IPv4Address = ipAddress });
 
                 await zoneResource.GetDnsARecords ()
@@ -84,7 +84,7 @@ public sealed class DnsUpdateService : IDnsUpdateService
                                             IpAddress: ipAddress.ToString ());
 
             case AddressFamily.InterNetworkV6:
-                var aaaaData = new DnsAaaaRecordData { TtlInSeconds              = ttl, } ;
+                var aaaaData = new DnsAaaaRecordData { TtlInSeconds              = ttl, };
                 aaaaData.DnsAaaaRecords.Add (new DnsAaaaRecordInfo { IPv6Address = ipAddress });
 
                 await zoneResource.GetDnsAaaaRecords ()

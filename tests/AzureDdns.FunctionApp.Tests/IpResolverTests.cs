@@ -23,14 +23,14 @@ namespace AzureDdns.FunctionApp.Tests;
 
 public sealed class IpResolverTests
 {
-    private readonly IpResolver _resolver = new () ;
+    private readonly IpResolver _resolver = new ();
 
     [Fact]
     public void Resolve_UsesSourceIp_WhenExplicitIpMissing ()
     {
-        HttpRequest request = CreateRequest ("203.0.113.10") ;
+        HttpRequest request = CreateRequest ("203.0.113.10");
 
-        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null) ;
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
 
         Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.EffectiveIp);
         Assert.False (result.ExplicitIpMismatch);
@@ -39,9 +39,9 @@ public sealed class IpResolverTests
     [Fact]
     public void Resolve_UsesExplicitIp_WhenValid ()
     {
-        HttpRequest request = CreateRequest ("203.0.113.10") ;
+        HttpRequest request = CreateRequest ("203.0.113.10");
 
-        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "2001:db8::1") ;
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "2001:db8::1");
 
         Assert.Equal (expected: IPAddress.Parse ("2001:db8::1"), actual: result.EffectiveIp);
         Assert.True (result.ExplicitIpMismatch);
@@ -50,9 +50,9 @@ public sealed class IpResolverTests
     [Fact]
     public void Resolve_ReturnsNullEffectiveIp_WhenExplicitIpInvalid ()
     {
-        HttpRequest request = CreateRequest ("203.0.113.10") ;
+        HttpRequest request = CreateRequest ("203.0.113.10");
 
-        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "bad-ip") ;
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "bad-ip");
 
         Assert.Null (result.EffectiveIp);
         Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.SourceIp);
@@ -60,7 +60,7 @@ public sealed class IpResolverTests
 
     private static HttpRequest CreateRequest (string remoteIp)
     {
-        var context = new DefaultHttpContext () ;
+        var context = new DefaultHttpContext ();
         context.Connection.RemoteIpAddress = IPAddress.Parse (remoteIp);
 
         return context.Request;

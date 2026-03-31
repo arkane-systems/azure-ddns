@@ -42,11 +42,11 @@ public sealed class UpdateDnsFunction
         this._logger = logger;
     }
 
-    private readonly IAuthService                _authService ;
-    private readonly IConfigProvider             _configProvider ;
-    private readonly IDnsUpdateService           _dnsUpdateService ;
-    private readonly IIpResolver                 _ipResolver ;
-    private readonly ILogger <UpdateDnsFunction> _logger ;
+    private readonly IAuthService                _authService;
+    private readonly IConfigProvider             _configProvider;
+    private readonly IDnsUpdateService           _dnsUpdateService;
+    private readonly IIpResolver                 _ipResolver;
+    private readonly ILogger <UpdateDnsFunction> _logger;
 
     /// <summary>
     ///     Handles DDNS update requests and upserts matching Azure DNS A or AAAA records.
@@ -56,11 +56,11 @@ public sealed class UpdateDnsFunction
         [HttpTrigger (authLevel: AuthorizationLevel.Anonymous, "get", Route = "update")] HttpRequest request,
         CancellationToken cancellationToken)
     {
-        string? client     = GetQueryValue (request: request, key: "client") ;
-        string? key        = GetQueryValue (request: request, key: "key") ;
-        string? zone       = GetQueryValue (request: request, key: "zone") ;
-        string? name       = GetQueryValue (request: request, key: "name") ;
-        string? explicitIp = GetQueryValue (request: request, key: "ip") ;
+        string? client     = GetQueryValue (request: request, key: "client");
+        string? key        = GetQueryValue (request: request, key: "key");
+        string? zone       = GetQueryValue (request: request, key: "zone");
+        string? name       = GetQueryValue (request: request, key: "name");
+        string? explicitIp = GetQueryValue (request: request, key: "ip");
 
         if (client is null)
             return Error (statusCode: StatusCodes.Status400BadRequest, message: "missing client");
@@ -74,14 +74,14 @@ public sealed class UpdateDnsFunction
         if (name is null)
             return Error (statusCode: StatusCodes.Status400BadRequest, message: "missing name");
 
-        DyndnsConfig config = await this._configProvider.GetConfigAsync (cancellationToken) ;
+        DyndnsConfig config = await this._configProvider.GetConfigAsync (cancellationToken);
         ZoneConfig? zoneConfig =
-            config.Zones.TryGetValue (key: zone, value: out ZoneConfig? configuredZone) ? configuredZone : null ;
+            config.Zones.TryGetValue (key: zone, value: out ZoneConfig? configuredZone) ? configuredZone : null;
 
         if (zoneConfig is null)
             return Error (statusCode: StatusCodes.Status400BadRequest, message: "zone not configured");
 
-        ClientConfig? authenticatedClient = this._authService.Authenticate (clientName: client, rawKey: key, config: config) ;
+        ClientConfig? authenticatedClient = this._authService.Authenticate (clientName: client, rawKey: key, config: config);
 
         if (authenticatedClient is null)
             return Error (statusCode: StatusCodes.Status401Unauthorized, message: "invalid credentials");
@@ -89,7 +89,7 @@ public sealed class UpdateDnsFunction
         if (!this._authService.IsRecordAuthorized (client: authenticatedClient, zone: zone, name: name))
             return Error (statusCode: StatusCodes.Status403Forbidden, message: "unauthorized record");
 
-        IpResolutionResult resolution = this._ipResolver.Resolve (request: request, explicitIp: explicitIp) ;
+        IpResolutionResult resolution = this._ipResolver.Resolve (request: request, explicitIp: explicitIp);
 
         if (resolution.EffectiveIp is null)
             return Error (statusCode: StatusCodes.Status400BadRequest,
@@ -110,7 +110,7 @@ public sealed class UpdateDnsFunction
                                                                                name: name,
                                                                                ipAddress: resolution.EffectiveIp,
                                                                                zoneConfig: zoneConfig,
-                                                                               cancellationToken: cancellationToken) ;
+                                                                               cancellationToken: cancellationToken);
             this._logger.LogInformation (message: "Updated {RecordType} record {Fqdn} for client {Client} to {IpAddress}.",
                                          result.RecordType,
                                          result.Fqdn,
@@ -153,7 +153,7 @@ public sealed class UpdateDnsFunction
 
     private static string? GetQueryValue (HttpRequest request, string key)
     {
-        var value = request.Query[key].ToString () ;
+        var value = request.Query[key].ToString ();
 
         return string.IsNullOrWhiteSpace (value) ? null : value.Trim ();
     }

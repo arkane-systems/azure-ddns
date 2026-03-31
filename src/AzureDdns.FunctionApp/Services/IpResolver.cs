@@ -29,7 +29,7 @@ public sealed class IpResolver : IIpResolver
 {
     public IpResolutionResult Resolve (HttpRequest request, string? explicitIp)
     {
-        IPAddress? sourceIp = request.HttpContext.Connection.RemoteIpAddress ;
+        IPAddress? sourceIp = request.HttpContext.Connection.RemoteIpAddress;
 
         if (string.IsNullOrWhiteSpace (explicitIp))
             return new IpResolutionResult (EffectiveIp: sourceIp, SourceIp: sourceIp, ExplicitIpMismatch: false);
@@ -37,7 +37,7 @@ public sealed class IpResolver : IIpResolver
         if (!IPAddress.TryParse (ipString: explicitIp, address: out IPAddress? parsedExplicitIp))
             return new IpResolutionResult (EffectiveIp: null, SourceIp: sourceIp, ExplicitIpMismatch: false);
 
-        bool mismatch = sourceIp is not null && !sourceIp.Equals (parsedExplicitIp) ;
+        bool mismatch = sourceIp is not null && !sourceIp.Equals (parsedExplicitIp);
 
         return new IpResolutionResult (EffectiveIp: parsedExplicitIp, SourceIp: sourceIp, ExplicitIpMismatch: mismatch);
     }
