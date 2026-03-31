@@ -2,6 +2,23 @@
 
 This document is the operational playbook for deploying and validating this project.
 
+## 0) GitHub workflow model (manual and split)
+
+This repository uses two manually triggered workflows to keep infrastructure and app deployments independent:
+
+1. `Deploy Infrastructure` (`.github/workflows/deploy-infrastructure.yml`)
+2. `Deploy Application` (`.github/workflows/deploy-application.yml`)
+
+Both workflows support deploy-time ref selection (`ref` input), so you can deploy from a specific branch, tag, or commit SHA.
+
+### Required repository secrets
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+These are used for OIDC-based login via `azure/login@v2`.
+
 ## 1) Deployment target and assumptions
 
 - Azure Functions Flex Consumption

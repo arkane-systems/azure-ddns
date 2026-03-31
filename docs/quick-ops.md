@@ -7,6 +7,23 @@ For full background and detailed explanations, see:
 - `README.md`
 - `docs/deployment-plan.md`
 
+## 0) Manual GitHub workflow deployment
+
+Two manual workflows are available:
+
+- `Deploy Infrastructure`
+  - Inputs: `ref`, `resourceGroup`, `runWhatIf`
+- `Deploy Application`
+  - Inputs: `ref`, `functionAppName`, `runTests`
+
+Required repository secrets:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+Use these workflows when you want branch-selectable, independently repeatable infra vs app redeployments.
+
 ## 1) Validate before deploy
 
 ```pwsh

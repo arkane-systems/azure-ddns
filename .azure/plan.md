@@ -1,7 +1,7 @@
 # Azure DDNS Infrastructure Plan
 
 ## Status
-In Progress
+Ready for Validation
 
 ## Mode
 MODIFY (existing .NET 8 Azure Functions app)
@@ -60,6 +60,8 @@ Provision Azure infrastructure for the Azure DDNS Function App using Bicep, alig
 2. Generate `infra/main.parameters.json`.
 3. Generate `azure.yaml` for azd.
 4. Validate IaC syntax and references.
+5. Add split manual GitHub workflows for infrastructure and application deployments with branch/ref selection.
+6. Document workflow secrets, inputs, and run procedures in repository documentation.
 
 ## Out of Scope
 - Application code refactors.

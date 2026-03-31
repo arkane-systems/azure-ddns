@@ -121,6 +121,43 @@ Behavior summary:
 
 For full deployment and validation procedures, see `docs/deployment-plan.md`.
 
+## GitHub deployment workflows
+
+Two manually triggered GitHub Actions workflows are provided to keep infrastructure and app redeployments independent.
+
+- `.github/workflows/deploy-infrastructure.yml`
+  - Trigger: manual (`workflow_dispatch`)
+  - Inputs: `ref`, `resourceGroup`, `runWhatIf`
+  - Actions: checkout selected ref -> Azure OIDC login -> Bicep compile -> optional `what-if` -> deploy
+
+- `.github/workflows/deploy-application.yml`
+  - Trigger: manual (`workflow_dispatch`)
+  - Inputs: `ref`, `functionAppName`, `runTests`
+  - Actions: checkout selected ref -> restore/build/test -> publish -> Azure OIDC login -> deploy Function package
+
+### Required GitHub repository secrets
+
+Set these repository secrets before running either workflow:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+These values are used by `azure/login@v2` with OpenID Connect (OIDC).
+
+### Required Azure federation/RBAC setup
+
+1. In Microsoft Entra ID, configure a federated credential on the deployment app registration/service principal for this GitHub repository.
+2. Grant the deployment principal least-privilege Azure roles needed for:
+   - resource group deployments (infrastructure workflow)
+   - Function App code deployment (application workflow)
+3. Keep DNS zone runtime permissions on the Function App managed identity (not on the GitHub deployment principal) unless operationally required.
+
+### Branch/ref selection behavior
+
+Both workflows accept a `ref` input so you can manually choose which branch/tag/SHA to deploy at run time.
+This supports controlled redeployments from release branches without changing workflow YAML.
+
 ## Operational checklist
 
 After deployment, verify:
