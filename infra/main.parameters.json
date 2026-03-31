@@ -3,23 +3,23 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "baseName": {
-      "value": "azddns"
+      "value": "azureddns"
     },
     "environmentName": {
-      "value": "dev"
+      "value": "production"
     },
     "location": {
-      "value": "westeurope"
+      "value": "centralus"
     },
     "dnsSubscriptionId": {
-      "value": "00000000-0000-0000-0000-000000000000"
+      "value": "3b7a3c63-ca1c-406b-8569-f894d0326c49"
     },
     "dnsResourceGroup": {
-      "value": "rg-dns-shared"
+      "value": "Standard"
     },
     "dnsZoneNames": {
       "value": [
-        "example.com"
+        "arkane-systems.net"
       ]
     },
     "functionAppName": {
