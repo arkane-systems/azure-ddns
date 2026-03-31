@@ -13,6 +13,7 @@
 - Prefer small, testable service classes over large function methods.
 - Do not log raw client keys.
 - Keep configuration strongly typed.
+- Prefer simpler deployment/configuration approaches over runtime-refreshable configuration when update frequency is low and complexity cost is high.
 - Use managed identity and Azure SDK clients rather than embedded credentials.
 - Make minimal, focused changes and preserve existing conventions.
 

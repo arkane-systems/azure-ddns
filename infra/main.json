@@ -1,0 +1,356 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.41.2.15936",
+      "templateHash": "4482874578267956767"
+    }
+  },
+  "parameters": {
+    "baseName": {
+      "type": "string",
+      "metadata": {
+        "description": "Base name used to derive resource names when explicit overrides are not supplied."
+      }
+    },
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Deployment environment label used for naming/tagging (for example: dev, test, prod)."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure location for all resources."
+      }
+    },
+    "dnsSubscriptionId": {
+      "type": "string",
+      "metadata": {
+        "description": "Subscription ID that contains the Azure DNS zones updated by the function app."
+      }
+    },
+    "dnsResourceGroup": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource group name that contains the Azure DNS zones updated by the function app."
+      }
+    },
+    "functionAppName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional override for Function App name."
+      }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional override for Storage Account name."
+      }
+    },
+    "appInsightsName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional override for Application Insights name."
+      }
+    },
+    "logAnalyticsWorkspaceName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional override for Log Analytics workspace name."
+      }
+    },
+    "functionPlanName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional override for Flex Consumption plan name."
+      }
+    },
+    "dnsZoneNames": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Optional DNS zone names to grant DNS Zone Contributor at zone scope in the shared DNS resource group."
+      }
+    }
+  },
+  "variables": {
+    "baseToken": "[toLower(replace(replace(parameters('baseName'), '-', ''), '_', ''))]",
+    "envToken": "[toLower(replace(replace(parameters('environmentName'), '-', ''), '_', ''))]",
+    "uniqueSuffix": "[take(uniqueString(subscription().subscriptionId, resourceGroup().id, parameters('baseName'), parameters('environmentName')), 6)]",
+    "functionAppNameDerived": "[take(format('{0}-func-{1}-{2}', variables('baseToken'), parameters('environmentName'), variables('uniqueSuffix')), 60)]",
+    "storageAccountNameDerived": "[take(format('{0}{1}{2}', variables('baseToken'), variables('envToken'), variables('uniqueSuffix')), 24)]",
+    "appInsightsNameDerived": "[take(format('{0}-appi-{1}', variables('baseToken'), parameters('environmentName')), 260)]",
+    "logAnalyticsWorkspaceNameDerived": "[take(format('{0}-law-{1}', variables('baseToken'), parameters('environmentName')), 63)]",
+    "functionPlanNameDerived": "[take(format('{0}-plan-{1}', variables('baseToken'), parameters('environmentName')), 40)]",
+    "functionAppNameResolved": "[if(empty(parameters('functionAppName')), variables('functionAppNameDerived'), parameters('functionAppName'))]",
+    "storageAccountNameResolved": "[if(empty(parameters('storageAccountName')), variables('storageAccountNameDerived'), toLower(parameters('storageAccountName')))]",
+    "appInsightsNameResolved": "[if(empty(parameters('appInsightsName')), variables('appInsightsNameDerived'), parameters('appInsightsName'))]",
+    "logAnalyticsWorkspaceNameResolved": "[if(empty(parameters('logAnalyticsWorkspaceName')), variables('logAnalyticsWorkspaceNameDerived'), parameters('logAnalyticsWorkspaceName'))]",
+    "functionPlanNameResolved": "[if(empty(parameters('functionPlanName')), variables('functionPlanNameDerived'), parameters('functionPlanName'))]",
+    "deploymentStorageContainerName": "function-releases",
+    "storageBlobDataOwnerRoleDefinitionId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageAccountNameResolved')]",
+      "location": "[parameters('location')]",
+      "kind": "StorageV2",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "properties": {
+        "supportsHttpsTrafficOnly": true,
+        "allowBlobPublicAccess": false,
+        "minimumTlsVersion": "TLS1_2",
+        "defaultToOAuthAuthentication": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/default/{1}', variables('storageAccountNameResolved'), variables('deploymentStorageContainerName'))]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameResolved'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('logAnalyticsWorkspaceNameResolved')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appInsightsNameResolved')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsWorkspaceNameResolved'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsWorkspaceNameResolved'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2024-04-01",
+      "name": "[variables('functionPlanNameResolved')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp",
+      "sku": {
+        "tier": "FlexConsumption",
+        "name": "FC1"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2024-04-01",
+      "name": "[variables('functionAppNameResolved')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('functionPlanNameResolved'))]",
+        "functionAppConfig": {
+          "runtime": {
+            "name": "dotnet-isolated",
+            "version": "8.0"
+          },
+          "scaleAndConcurrency": {
+            "maximumInstanceCount": 40,
+            "instanceMemoryMB": 2048
+          },
+          "deployment": {
+            "storage": {
+              "type": "blobContainer",
+              "value": "[format('{0}{1}', reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameResolved')), '2023-05-01').primaryEndpoints.blob, variables('deploymentStorageContainerName'))]",
+              "authentication": {
+                "type": "SystemAssignedIdentity"
+              }
+            }
+          }
+        },
+        "siteConfig": {
+          "appSettings": [
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsNameResolved')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "dotnet-isolated"
+            },
+            {
+              "name": "AZURE_FUNCTIONS_ENVIRONMENT",
+              "value": "[parameters('environmentName')]"
+            },
+            {
+              "name": "DNS_SUBSCRIPTION_ID",
+              "value": "[parameters('dnsSubscriptionId')]"
+            },
+            {
+              "name": "DNS_RESOURCE_GROUP",
+              "value": "[parameters('dnsResourceGroup')]"
+            },
+            {
+              "name": "CONFIG_PATH",
+              "value": "config/dyndns.json"
+            },
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storageAccountNameResolved'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameResolved')), '2023-05-01').keys[0].value)]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsNameResolved'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', split(format('{0}/default/{1}', variables('storageAccountNameResolved'), variables('deploymentStorageContainerName')), '/')[0], split(format('{0}/default/{1}', variables('storageAccountNameResolved'), variables('deploymentStorageContainerName')), '/')[1], split(format('{0}/default/{1}', variables('storageAccountNameResolved'), variables('deploymentStorageContainerName')), '/')[2])]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('functionPlanNameResolved'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameResolved'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameResolved'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameResolved')), resourceId('Microsoft.Web/sites', variables('functionAppNameResolved')), variables('storageBlobDataOwnerRoleDefinitionId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataOwnerRoleDefinitionId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppNameResolved')), '2024-04-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('functionAppNameResolved'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameResolved'))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('dnsZoneNames')))]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "dns-zone-rbac",
+      "subscriptionId": "[parameters('dnsSubscriptionId')]",
+      "resourceGroup": "[parameters('dnsResourceGroup')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "dnsZoneNames": {
+            "value": "[parameters('dnsZoneNames')]"
+          },
+          "principalId": {
+            "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppNameResolved')), '2024-04-01', 'full').identity.principalId]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "15295430200209936555"
+            }
+          },
+          "parameters": {
+            "dnsZoneNames": {
+              "type": "array",
+              "metadata": {
+                "description": "DNS zone names that should grant DNS Zone Contributor to the Function App identity."
+              }
+            },
+            "principalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Managed identity principal ID of the Function App."
+              }
+            }
+          },
+          "variables": {
+            "dnsZoneContributorRoleDefinitionId": "befefa01-2a29-4197-83a8-272ff33ce314"
+          },
+          "resources": [
+            {
+              "copy": {
+                "name": "dnsZoneRoleAssignments",
+                "count": "[length(parameters('dnsZoneNames'))]"
+              },
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Network/dnsZones', parameters('dnsZoneNames')[copyIndex()])]",
+              "name": "[guid(resourceId('Microsoft.Network/dnsZones', parameters('dnsZoneNames')[copyIndex()]), parameters('principalId'), variables('dnsZoneContributorRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('dnsZoneContributorRoleDefinitionId'))]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('functionAppNameResolved'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[variables('functionAppNameResolved')]"
+    },
+    "functionAppPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppNameResolved')), '2024-04-01', 'full').identity.principalId]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountNameResolved')]"
+    },
+    "applicationInsightsConnectionString": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsNameResolved')), '2020-02-02').ConnectionString]"
+    },
+    "dnsZoneScopedRoleAssignments": {
+      "type": "array",
+      "copy": {
+        "count": "[length(parameters('dnsZoneNames'))]",
+        "input": "[format('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/dnsZones/{2}', parameters('dnsSubscriptionId'), parameters('dnsResourceGroup'), parameters('dnsZoneNames')[copyIndex()])]"
+      }
+    }
+  }
+}

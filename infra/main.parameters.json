@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "value": "azddns"
+    },
+    "environmentName": {
+      "value": "dev"
+    },
+    "location": {
+      "value": "westeurope"
+    },
+    "dnsSubscriptionId": {
+      "value": "00000000-0000-0000-0000-000000000000"
+    },
+    "dnsResourceGroup": {
+      "value": "rg-dns-shared"
+    },
+    "dnsZoneNames": {
+      "value": [
+        "example.com"
+      ]
+    },
+    "functionAppName": {
+      "value": ""
+    },
+    "storageAccountName": {
+      "value": ""
+    },
+    "appInsightsName": {
+      "value": ""
+    },
+    "logAnalyticsWorkspaceName": {
+      "value": ""
+    },
+    "functionPlanName": {
+      "value": ""
+    }
+  }
+}
