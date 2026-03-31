@@ -23,9 +23,22 @@ namespace AzureDdns.FunctionApp.Services;
 
 public interface IConfigProvider
 {
+    /// <summary>
+    ///     Retrieves the current DDNS configuration snapshot used for request authentication/authorization.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token for asynchronous I/O.</param>
+    /// <returns>Deserialized configuration; never <see langword="null"/>.</returns>
     Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+///     Loads DDNS configuration from a JSON file path defined by runtime settings.
+/// </summary>
+/// <remarks>
+///     This provider intentionally favors operational simplicity over dynamic refresh complexity.
+///     Missing/invalid files resolve to an empty configuration object to keep failure behavior explicit
+///     in the function layer (for example, returning "zone not configured").
+/// </remarks>
 public sealed class FileConfigProvider : IConfigProvider
 {
     private static readonly JsonSerializerOptions SerializerOptions = new (JsonSerializerDefaults.Web);
@@ -34,8 +47,14 @@ public sealed class FileConfigProvider : IConfigProvider
 
     private readonly RuntimeSettings _settings;
 
+    /// <summary>
+    ///     Loads and deserializes DDNS configuration from the configured file path.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token for file stream read/deserialization.</param>
+    /// <returns>Loaded configuration, or empty configuration when file does not exist.</returns>
     public async Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default)
     {
+        // Relative paths are resolved from app base directory so packaged config works in Azure and local runs.
         string fullPath = Path.IsPathRooted (this._settings.ConfigPath)
                               ? this._settings.ConfigPath
                               : Path.Combine (path1: AppContext.BaseDirectory, path2: this._settings.ConfigPath);

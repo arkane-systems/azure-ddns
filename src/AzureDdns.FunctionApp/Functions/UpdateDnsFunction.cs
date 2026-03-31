@@ -29,6 +29,14 @@ namespace AzureDdns.FunctionApp.Functions;
 
 public sealed class UpdateDnsFunction
 {
+    /// <summary>
+    ///     Coordinates dynamic DNS update requests end-to-end.
+    /// </summary>
+    /// <remarks>
+    ///     The function intentionally keeps transport concerns (HTTP query parsing and response formatting)
+    ///     in this class while delegating authentication, IP resolution, and DNS operations to services.
+    ///     This keeps behavior testable and makes it easier to evolve service logic independently.
+    /// </remarks>
     public UpdateDnsFunction (IConfigProvider configProvider,
                               IAuthService authService,
                               IIpResolver ipResolver,
@@ -49,8 +57,14 @@ public sealed class UpdateDnsFunction
     private readonly ILogger <UpdateDnsFunction> _logger;
 
     /// <summary>
-    ///     Handles DDNS update requests and upserts matching Azure DNS A or AAAA records.
+    ///     Handles a DDNS update request and writes the matching <c>A</c> or <c>AAAA</c> record to Azure DNS.
     /// </summary>
+    /// <remarks>
+    ///     Execution order is intentionally strict:
+    ///     validate request -> load config -> authenticate -> authorize -> resolve IP -> update DNS.
+    ///     This avoids unnecessary Azure calls for invalid or unauthorized requests and keeps failure
+    ///     responses deterministic for DDNS clients.
+    /// </remarks>
     [Function ("UpdateDns")]
     public async Task<IActionResult> RunAsync (
         [HttpTrigger (authLevel: AuthorizationLevel.Anonymous, "get", Route = "update")] HttpRequest request,
@@ -151,6 +165,12 @@ public sealed class UpdateDnsFunction
         }
     }
 
+    /// <summary>
+    ///     Returns a trimmed query-string value or <see langword="null"/> when absent/blank.
+    /// </summary>
+    /// <remarks>
+    ///     Normalizing early keeps downstream service logic focused on domain rules instead of input hygiene.
+    /// </remarks>
     private static string? GetQueryValue (HttpRequest request, string key)
     {
         var value = request.Query[key].ToString ();
@@ -158,9 +178,15 @@ public sealed class UpdateDnsFunction
         return string.IsNullOrWhiteSpace (value) ? null : value.Trim ();
     }
 
+    /// <summary>
+    ///     Formats a successful DDNS response in plain text for broad client compatibility.
+    /// </summary>
     private static ContentResult Success (string message)
         => new () { Content = $"OK: {message}", ContentType = "text/plain", StatusCode = StatusCodes.Status200OK, };
 
+    /// <summary>
+    ///     Formats an error DDNS response in plain text for broad client compatibility.
+    /// </summary>
     private static ContentResult Error (int statusCode, string message)
         => new () { Content = $"ERROR: {message}", ContentType = "text/plain", StatusCode = statusCode, };
 }
