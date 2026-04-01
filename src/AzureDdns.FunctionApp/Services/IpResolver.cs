@@ -42,6 +42,9 @@ public interface IIpResolver
 public sealed class IpResolver : IIpResolver
 {
   private const string ForwardedForHeaderName = "X-Forwarded-For";
+  private const string ForwardedHeaderName    = "Forwarded";
+  private const string XOriginalForHeaderName = "X-Original-For";
+  private const string XRealIpHeaderName      = "X-Real-IP";
 
   /// <summary>
   ///   Determines which IP address should be written to DNS.
@@ -54,27 +57,53 @@ public sealed class IpResolver : IIpResolver
   {
     ArgumentNullException.ThrowIfNull (request);
 
-    IPAddress? sourceIp = GetSourceIp (request);
+    IpResolutionDiagnostics diagnostics = CreateDiagnostics (request);
+    IPAddress?             sourceIp    = !diagnostics.TrustedProxyHop
+                                          ? diagnostics.RemoteIp
+                                          : diagnostics.ForwardedForIp ?? diagnostics.RemoteIp;
 
     if (string.IsNullOrWhiteSpace (explicitIp))
-      return new IpResolutionResult (EffectiveIp: sourceIp, SourceIp: sourceIp, ExplicitIpMismatch: false);
+      return new IpResolutionResult (EffectiveIp: sourceIp,
+                                     SourceIp: sourceIp,
+                                     ExplicitIpMismatch: false,
+                                     Diagnostics: diagnostics);
 
     if (!IPAddress.TryParse (ipString: explicitIp, address: out IPAddress? parsedExplicitIp))
-      return new IpResolutionResult (EffectiveIp: null, SourceIp: sourceIp, ExplicitIpMismatch: false);
+      return new IpResolutionResult (EffectiveIp: null,
+                                     SourceIp: sourceIp,
+                                     ExplicitIpMismatch: false,
+                                     Diagnostics: diagnostics);
 
     bool mismatch = sourceIp is not null && !sourceIp.Equals (parsedExplicitIp);
 
-    return new IpResolutionResult (EffectiveIp: parsedExplicitIp, SourceIp: sourceIp, ExplicitIpMismatch: mismatch);
+    return new IpResolutionResult (EffectiveIp: parsedExplicitIp,
+                                   SourceIp: sourceIp,
+                                   ExplicitIpMismatch: mismatch,
+                                   Diagnostics: diagnostics);
   }
 
-  /// <summary>
-  ///   Prefers the first forwarded client IP only when the immediate caller looks like a trusted proxy hop.
-  /// </summary>
-  private static IPAddress? GetSourceIp (HttpRequest request)
+  private static IpResolutionDiagnostics CreateDiagnostics (HttpRequest request)
   {
-    IPAddress? remoteIp = request.HttpContext.Connection.RemoteIpAddress;
+    IPAddress? remoteIp        = request.HttpContext.Connection.RemoteIpAddress;
+    bool       trustedProxyHop = IsTrustedProxyHop (remoteIp);
 
-    return !IsTrustedProxyHop (remoteIp) ? remoteIp : TryGetForwardedForIp (request) ?? remoteIp;
+    return new IpResolutionDiagnostics (RemoteIp: remoteIp,
+                                        TrustedProxyHop: trustedProxyHop,
+                                        ForwardedForIp: trustedProxyHop ? TryGetForwardedForIp (request) : null,
+                                        ForwardedForHeader: GetHeaderValue (request, ForwardedForHeaderName),
+                                        ForwardedHeader: GetHeaderValue (request, ForwardedHeaderName),
+                                        XOriginalForHeader: GetHeaderValue (request, XOriginalForHeaderName),
+                                        XRealIpHeader: GetHeaderValue (request, XRealIpHeaderName));
+  }
+
+  private static string? GetHeaderValue (HttpRequest request, string headerName)
+  {
+    if (!request.Headers.TryGetValue (key: headerName, value: out StringValues headerValues))
+      return null;
+
+    string value = string.Join (", ", headerValues);
+
+    return string.IsNullOrWhiteSpace (value) ? null : value;
   }
 
   private static IPAddress? TryGetForwardedForIp (HttpRequest request)
@@ -170,9 +199,24 @@ public sealed class IpResolver : IIpResolver
 }
 
 /// <summary>
+///   Captures request networking context used during effective source IP resolution.
+/// </summary>
+public sealed record IpResolutionDiagnostics (IPAddress? RemoteIp,
+                                              bool       TrustedProxyHop,
+                                              IPAddress? ForwardedForIp,
+                                              string?    ForwardedForHeader,
+                                              string?    ForwardedHeader,
+                                              string?    XOriginalForHeader,
+                                              string?    XRealIpHeader);
+
+/// <summary>
 ///   Captures resolved IP details for DDNS update and diagnostics.
 /// </summary>
 /// <param name="EffectiveIp">IP address selected for DNS update; <see langword="null" /> when resolution fails.</param>
 /// <param name="SourceIp">Remote source IP from the incoming request context.</param>
 /// <param name="ExplicitIpMismatch">Indicates caller-supplied IP differs from request source IP.</param>
-public sealed record IpResolutionResult (IPAddress? EffectiveIp, IPAddress? SourceIp, bool ExplicitIpMismatch);
+/// <param name="Diagnostics">Network context captured while resolving effective and source IP values.</param>
+public sealed record IpResolutionResult (IPAddress?             EffectiveIp,
+                                         IPAddress?             SourceIp,
+                                         bool                   ExplicitIpMismatch,
+                                         IpResolutionDiagnostics Diagnostics);

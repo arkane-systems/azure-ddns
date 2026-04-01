@@ -35,6 +35,9 @@ public sealed class IpResolverTests
         Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.EffectiveIp);
         Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.SourceIp);
         Assert.False (result.ExplicitIpMismatch);
+        Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.Diagnostics.RemoteIp);
+        Assert.False (result.Diagnostics.TrustedProxyHop);
+        Assert.Null (result.Diagnostics.ForwardedForHeader);
     }
 
     [Fact]
@@ -46,6 +49,9 @@ public sealed class IpResolverTests
 
         Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.EffectiveIp);
         Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
+        Assert.True (result.Diagnostics.TrustedProxyHop);
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.Diagnostics.ForwardedForIp);
+        Assert.Equal (expected: "198.51.100.25, 10.0.0.5", actual: result.Diagnostics.ForwardedForHeader);
     }
 
     [Fact]

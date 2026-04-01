@@ -13,6 +13,8 @@
 
 #region using
 
+using System.Net;
+
 using Azure;
 
 using AzureDdns.FunctionApp.Config;
@@ -111,6 +113,24 @@ public sealed class UpdateDnsFunction
       return Error (statusCode: StatusCodes.Status403Forbidden, message: "unauthorized record");
 
     IpResolutionResult resolution = this.ipResolver.Resolve (request: request, explicitIp: explicitIp);
+
+    this.logger.LogInformation (message:
+                                "IP resolution diagnostics for {Record}.{Zone}: remote={RemoteIp}, source={SourceIp}, trustedProxyHop={TrustedProxyHop}, parsedForwardedFor={ParsedForwardedFor}, xForwardedFor={XForwardedFor}, forwarded={Forwarded}, xOriginalFor={XOriginalFor}, xRealIp={XRealIp}.",
+                                name,
+                                zone,
+                                resolution.Diagnostics.RemoteIp,
+                                resolution.SourceIp,
+                                resolution.Diagnostics.TrustedProxyHop,
+                                resolution.Diagnostics.ForwardedForIp,
+                                resolution.Diagnostics.ForwardedForHeader,
+                                resolution.Diagnostics.ForwardedHeader,
+                                resolution.Diagnostics.XOriginalForHeader,
+                                resolution.Diagnostics.XRealIpHeader);
+
+    if (resolution.SourceIp is not null && IPAddress.IsLoopback (resolution.SourceIp))
+      this.logger.LogWarning (message: "Source IP resolved to loopback for {Record}.{Zone}; confirm reverse-proxy header forwarding configuration.",
+                              name,
+                              zone);
 
     if (resolution.EffectiveIp is null)
       return Error (statusCode: StatusCodes.Status400BadRequest,
