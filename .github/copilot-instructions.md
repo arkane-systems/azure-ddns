@@ -17,6 +17,7 @@
 - Use managed identity and Azure SDK clients rather than embedded credentials.
 - Make minimal, focused changes and preserve existing conventions.
 - Ensure documentation and code comments are thorough and written for long-gap maintainability (future re-entry after 6-12 months).
+- When updating documentation in this repo, preserve existing README content and add new material without removing surrounding sections or details.
 
 ## Operational guidance
 - Plain-text responses are preferred for DDNS client compatibility.
