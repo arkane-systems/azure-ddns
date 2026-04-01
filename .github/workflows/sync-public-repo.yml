@@ -1,0 +1,121 @@
+name: Sync Public Repository
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-public-repo:
+    name: Sync private main to public repository
+    runs-on: ubuntu-latest
+    env:
+      TARGET_REPO: arkane-systems/azure-ddns-pub
+      TARGET_BRANCH: master
+      TARGET_PATH: ${{ github.workspace }}/_public
+      PUBLIC_REPO_PAT: ${{ secrets.AZURE_DDNS_PUB_REPO_PAT }}
+
+    steps:
+      - name: Checkout private repository main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Validate required secret
+        run: |
+          test -n "$PUBLIC_REPO_PAT"
+
+      - name: Clone public repository
+        run: |
+          git clone "https://x-access-token:${PUBLIC_REPO_PAT}@github.com/${TARGET_REPO}.git" "$TARGET_PATH"
+          cd "$TARGET_PATH"
+          git checkout "$TARGET_BRANCH"
+
+      - name: Mirror private repository to public repository
+        run: |
+          rsync -a --delete --exclude='.git/' "$GITHUB_WORKSPACE/" "$TARGET_PATH/"
+
+      - name: Replace sensitive files with public examples
+        run: |
+          cat > "$TARGET_PATH/infra/main.parameters.json" <<'JSON'
+          {
+            "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "baseName": {
+                "value": "azureddns"
+              },
+              "environmentName": {
+                "value": "production"
+              },
+              "location": {
+                "value": "centralus"
+              },
+              "dnsSubscriptionId": {
+                "value": "00000000-0000-0000-0000-000000000000"
+              },
+              "dnsResourceGroup": {
+                "value": "example-dns-rg"
+              },
+              "dnsZoneNames": {
+                "value": [
+                  "example.com"
+                ]
+              },
+              "functionAppName": {
+                "value": ""
+              },
+              "storageAccountName": {
+                "value": ""
+              },
+              "appInsightsName": {
+                "value": ""
+              },
+              "logAnalyticsWorkspaceName": {
+                "value": ""
+              },
+              "functionPlanName": {
+                "value": ""
+              }
+            }
+          }
+          JSON
+
+          cat > "$TARGET_PATH/src/AzureDdns.FunctionApp/config/dyndns.json" <<'JSON'
+          {
+            "zones": {
+              "example.com": {
+                "ttl": 300
+              }
+            },
+            "clients": [
+              {
+                "name": "example-client",
+                "keyHash": "replace-with-sha256-hash-of-client-key",
+                "allowedRecords": [
+                  {
+                    "zone": "example.com",
+                    "name": "host"
+                  }
+                ]
+              }
+            ]
+          }
+          JSON
+
+      - name: Commit and push changes
+        run: |
+          cd "$TARGET_PATH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+            exit 0
+          fi
+
+          git commit -m "Sync from arkane-systems/azure-ddns@${GITHUB_SHA}"
+          git push origin "$TARGET_BRANCH"
