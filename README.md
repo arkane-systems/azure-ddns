@@ -55,6 +55,7 @@ Responses are plain text and stable for client compatibility:
   - `config/dyndns.json` - sample DDNS configuration
   - `local.settings.json.example` - local app settings template
 - `tests/AzureDdns.FunctionApp.Tests` - xUnit tests
+- `scripts/smoke-test.ps1` - post-deployment smoke test for end-to-end DDNS validation
 - `infra/main.bicep` - infrastructure definition
 - `infra/modules/dns-zone-rbac.bicep` - optional zone-scoped RBAC assignment module
 - `infra/main.parameters.json` - deploy-time parameter values
@@ -170,6 +171,49 @@ After deployment, verify:
 4. IPv6 update requests modify only `AAAA` records.
 5. Unauthorized client/record requests are rejected.
 6. Logs contain useful context without exposing raw keys.
+
+## Smoke test script
+
+Use `scripts/smoke-test.ps1` after deployment to perform an end-to-end functional validation of the Function App and Azure DNS integration.
+
+What the script does:
+
+1. Accepts the target Function App URL plus the client, zone, and record name to test.
+2. Generates one random IPv4 address from the RFC5737 documentation ranges.
+3. Generates one random IPv6 address from the RFC3849 documentation range.
+4. Sends an IPv4 update request and verifies the plain-text success response.
+5. Queries an authoritative name server for the target zone and waits for the `A` record to match the generated IPv4 address.
+6. Sends an IPv6 update request and verifies the plain-text success response.
+7. Queries an authoritative name server again and waits for the `AAAA` record to match the generated IPv6 address.
+8. Confirms that the earlier `A` record value remains unchanged to validate `A`/`AAAA` independence.
+
+Parameters:
+
+- `-FunctionBaseUrl` - Base URL of the deployed Function App, with or without `/api/update`
+- `-ClientName` - DDNS client name configured in `config/dyndns.json`
+- `-ClientKey` - raw DDNS client key; if omitted, the script uses `AZURE_DDNS_CLIENT_KEY`
+- `-Zone` - DNS zone to test
+- `-Name` - relative record name to test (`@` for zone apex)
+- `-DnsTimeoutSeconds` - optional DNS propagation wait timeout; default `120`
+- `-DnsPollIntervalSeconds` - optional poll interval between authoritative DNS checks; default `5`
+
+Example:
+
+```powershell
+$env:AZURE_DDNS_CLIENT_KEY = 'your-raw-client-key'
+.\scripts\smoke-test.ps1 `
+  -FunctionBaseUrl 'https://<your-function-app>.azurewebsites.net' `
+  -ClientName 'stargate' `
+  -Zone 'arkane-systems.net' `
+  -Name 'smoke'
+```
+
+Prerequisites and notes:
+
+- The tested record must already be authorized for the selected client in `config/dyndns.json`.
+- The script depends on `Resolve-DnsName` being available in PowerShell.
+- The script verifies authoritative DNS results, so completion time depends on Azure DNS write latency and name server visibility.
+- The generated addresses are intentionally from documentation-only ranges so the smoke test never points records at real client endpoints.
 
 ## Notes for future you
 

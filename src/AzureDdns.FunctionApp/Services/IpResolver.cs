@@ -14,8 +14,10 @@
 #region using
 
 using System.Net;
+using System.Net.Sockets;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Primitives;
 
 #endregion
 
@@ -39,6 +41,8 @@ public interface IIpResolver
 /// </summary>
 public sealed class IpResolver : IIpResolver
 {
+  private const string ForwardedForHeaderName = "X-Forwarded-For";
+
   /// <summary>
   ///   Determines which IP address should be written to DNS.
   /// </summary>
@@ -48,7 +52,9 @@ public sealed class IpResolver : IIpResolver
   /// </remarks>
   public IpResolutionResult Resolve (HttpRequest request, string? explicitIp)
   {
-    IPAddress? sourceIp = request.HttpContext.Connection.RemoteIpAddress;
+    ArgumentNullException.ThrowIfNull (request);
+
+    IPAddress? sourceIp = GetSourceIp (request);
 
     if (string.IsNullOrWhiteSpace (explicitIp))
       return new IpResolutionResult (EffectiveIp: sourceIp, SourceIp: sourceIp, ExplicitIpMismatch: false);
@@ -59,6 +65,107 @@ public sealed class IpResolver : IIpResolver
     bool mismatch = sourceIp is not null && !sourceIp.Equals (parsedExplicitIp);
 
     return new IpResolutionResult (EffectiveIp: parsedExplicitIp, SourceIp: sourceIp, ExplicitIpMismatch: mismatch);
+  }
+
+  /// <summary>
+  ///   Prefers the first forwarded client IP only when the immediate caller looks like a trusted proxy hop.
+  /// </summary>
+  private static IPAddress? GetSourceIp (HttpRequest request)
+  {
+    IPAddress? remoteIp = request.HttpContext.Connection.RemoteIpAddress;
+
+    return !IsTrustedProxyHop (remoteIp) ? remoteIp : TryGetForwardedForIp (request) ?? remoteIp;
+  }
+
+  private static IPAddress? TryGetForwardedForIp (HttpRequest request)
+  {
+    if (!request.Headers.TryGetValue (key: ForwardedForHeaderName, value: out StringValues forwardedForValues))
+      return null;
+
+    foreach (string? headerValue in forwardedForValues)
+    {
+      string[] entries = headerValue!.Split (separator: ',',
+                                             options: StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+      foreach (string entry in entries)
+      {
+        if (TryParseForwardedForEntry (entry: entry, ipAddress: out IPAddress? parsedAddress))
+          return parsedAddress;
+      }
+    }
+
+    return null;
+  }
+
+  private static bool TryParseForwardedForEntry (string entry, out IPAddress? ipAddress)
+  {
+    string candidate = entry.Trim ();
+
+    if (candidate.Length == 0)
+    {
+      ipAddress = null;
+
+      return false;
+    }
+
+    if (candidate[0] == '[')
+    {
+      int endBracketIndex = candidate.IndexOf (']');
+
+      if (endBracketIndex > 1)
+        candidate = candidate[1..endBracketIndex];
+    }
+    else if (GetCharacterCount (value: candidate, character: ':') == 1)
+    {
+      int separatorIndex = candidate.LastIndexOf (':');
+
+      if (separatorIndex > 0)
+        candidate = candidate[..separatorIndex];
+    }
+
+    bool parsed = IPAddress.TryParse (ipString: candidate, address: out IPAddress? parsedAddress);
+    ipAddress = parsed ? parsedAddress : null;
+
+    return parsed;
+  }
+
+  private static bool IsTrustedProxyHop (IPAddress? address)
+  {
+    if (address is null)
+      return false;
+
+    if (IPAddress.IsLoopback (address))
+      return true;
+
+    if (address.AddressFamily == AddressFamily.InterNetworkV6)
+    {
+      if (address.IsIPv4MappedToIPv6)
+        address = address.MapToIPv4 ();
+      else
+        return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || IsUniqueLocalIpv6 (address);
+    }
+
+    byte[] bytes = address.GetAddressBytes ();
+
+    return (bytes[0] == 10)                                   ||
+           ((bytes[0] == 172) && bytes[1] is >= 16 and <= 31) ||
+           ((bytes[0] == 192) && (bytes[1] == 168))           ||
+           ((bytes[0] == 169) && (bytes[1] == 254));
+  }
+
+  private static bool IsUniqueLocalIpv6 (IPAddress address) => (address.GetAddressBytes ()[0] & 0xfe) == 0xfc;
+
+  private static int GetCharacterCount (string value, char character)
+  {
+    var count = 0;
+
+    foreach (char current in value)
+    {
+      if (current == character)
+        count++;
+    }
+
+    return count;
   }
 }
 
