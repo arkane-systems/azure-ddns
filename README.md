@@ -106,58 +106,113 @@ Security notes:
    - `dotnet test`
 6. Run function locally (from app project folder) and send a test request to `/api/update`.
 
-## Infrastructure (Bicep)
+## Manual deployment from a repository clone
 
-Infrastructure is defined in `infra/main.bicep` and is parameterized with:
+Use these steps when deploying without GitHub Actions.
 
-- Required: `baseName`, `environmentName`, `location`, `dnsSubscriptionId`, `dnsResourceGroup`
-- Optional overrides: `functionAppName`, `storageAccountName`, `appInsightsName`, `logAnalyticsWorkspaceName`, `functionPlanName`
-- Optional DNS zone-scope RBAC input: `dnsZoneNames`
+### Prerequisites
 
-Behavior summary:
+1. Install required tooling:
+   - Azure CLI (`az`)
+   - .NET 8 SDK
+   - Azure Functions Core Tools v4 (for local verification)
+2. Sign in to Azure CLI:
+   - `az login`
+3. Select the subscription where infrastructure will be deployed:
+   - `az account set --subscription <infra-subscription-id-or-name>`
+4. Confirm the target resource group exists (or create it):
+   - `az group create --name <resource-group> --location <azure-region>`
 
-- If optional names are empty, deterministic names are derived from `baseName` + `environmentName` + unique suffix.
-- If `dnsZoneNames` is empty, zone-scoped DNS RBAC assignments are skipped.
-- If `dnsZoneNames` is populated, DNS Zone Contributor is assigned per zone to the Function App managed identity.
+### 1) Clone and prepare the repository
 
-For full deployment and validation procedures, see `docs/deployment-plan.md`.
+1. Clone the repository and switch to the intended branch:
+   - `git clone https://github.com/arkane-systems/azure-ddns.git`
+   - `cd azure-ddns`
+   - `git checkout <branch-or-tag>`
+2. Restore dependencies and validate baseline build:
+   - `dotnet restore`
+   - `dotnet build`
+3. Optionally run tests before deploying:
+   - `dotnet test`
 
-## GitHub deployment workflows
+### 2) Update infrastructure parameters (`infra/main.parameters.json`)
 
-Two manually triggered GitHub Actions workflows are provided to keep infrastructure and app redeployments independent.
+1. Open `infra/main.parameters.json`.
+2. Set required values for your environment:
+   - `baseName`
+   - `environmentName`
+   - `location`
+   - `dnsSubscriptionId`
+   - `dnsResourceGroup`
+3. Decide whether to use explicit resource names or derived names:
+   - Leave optional name parameters empty to use deterministic generated names.
+   - Or set explicit values for `functionAppName`, `storageAccountName`, `appInsightsName`, `logAnalyticsWorkspaceName`, and `functionPlanName`.
+4. If you want zone-scoped DNS RBAC created by Bicep, populate `dnsZoneNames` with the zone names that this app will update.
+5. Save the file.
 
-- `.github/workflows/deploy-infrastructure.yml`
-  - Trigger: manual (`workflow_dispatch`)
-  - Inputs: `ref`, `resourceGroup`, `runWhatIf`
-  - Actions: checkout selected ref -> Azure OIDC login -> Bicep compile -> optional `what-if` -> deploy
+### 3) Update DDNS runtime configuration (`src/AzureDdns.FunctionApp/config/dyndns.json`)
 
-- `.github/workflows/deploy-application.yml`
-  - Trigger: manual (`workflow_dispatch`)
-  - Inputs: `ref`, `functionAppName`, `runTests`
-  - Actions: checkout selected ref -> restore/build/test -> publish -> Azure OIDC login -> deploy Function package
+1. Open `src/AzureDdns.FunctionApp/config/dyndns.json`.
+2. Update the `zones` section with your real zone names and desired TTL values.
+3. Update the `clients` section for your local requirements:
+   - Set each client `name`.
+   - Replace each `keyHash` with the SHA-256 hex hash of that client’s raw key.
+   - Set `allowedRecords` to the exact `{ zone, name }` pairs each client is allowed to update (use `*` for wildcard record-name authorization within a zone when needed).
+4. Ensure no raw client keys are stored in source files.
+5. Save the file.
 
-### Required GitHub repository secrets
+### 4) Deploy infrastructure with Bicep
 
-Set these repository secrets before running either workflow:
+1. Deploy `infra/main.bicep` using the updated parameters file:
+   - `az deployment group create --resource-group <resource-group> --template-file infra/main.bicep --parameters @infra/main.parameters.json`
+2. (Optional) Run a what-if preview before deployment:
+   - `az deployment group what-if --resource-group <resource-group> --template-file infra/main.bicep --parameters @infra/main.parameters.json`
+3. Record outputs and final resource names (especially Function App and Storage resources).
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
+### 5) Configure Function App settings
 
-These values are used by `azure/login@v2` with OpenID Connect (OIDC).
+After infrastructure deployment, set required app settings on the Function App:
 
-### Required Azure federation/RBAC setup
+1. `DNS_SUBSCRIPTION_ID` = subscription that contains the DNS zones.
+2. `DNS_RESOURCE_GROUP` = resource group that contains the DNS zones.
+3. `CONFIG_PATH` = `config/dyndns.json` (unless you intentionally changed the location).
 
-1. In Microsoft Entra ID, configure a federated credential on the deployment app registration/service principal for this GitHub repository.
-2. Grant the deployment principal least-privilege Azure roles needed for:
-   - resource group deployments (infrastructure workflow)
-   - Function App code deployment (application workflow)
-3. Keep DNS zone runtime permissions on the Function App managed identity (not on the GitHub deployment principal) unless operationally required.
+Example:
 
-### Branch/ref selection behavior
+`az functionapp config appsettings set --name <function-app-name> --resource-group <resource-group> --settings DNS_SUBSCRIPTION_ID=<dns-subscription-id> DNS_RESOURCE_GROUP=<dns-resource-group> CONFIG_PATH=config/dyndns.json`
 
-Both workflows accept a `ref` input so you can manually choose which branch/tag/SHA to deploy at run time.
-This supports controlled redeployments from release branches without changing workflow YAML.
+### 6) Publish and deploy the Function App package
+
+1. Publish the Function App:
+   - `dotnet publish src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj -c Release -o out/functionapp`
+2. Create a deployment zip from the publish output.
+3. Deploy the zip package to the target Function App:
+   - `az functionapp deployment source config-zip --name <function-app-name> --resource-group <resource-group> --src <path-to-zip>`
+
+### 7) Validate deployment
+
+1. Confirm the Function App is running and responds on `/api/update`.
+2. Verify managed identity role assignments are present as expected (including optional DNS zone-scoped RBAC when enabled).
+3. Run the smoke test:
+   - `./scripts/smoke-test.ps1 -FunctionBaseUrl 'https://<function-app-name>.azurewebsites.net' -ClientName '<client>' -Zone '<zone>' -Name '<record>'`
+4. Confirm behavior:
+   - IPv4 requests update only `A`.
+   - IPv6 requests update only `AAAA`.
+   - Unauthorized updates are rejected with expected status codes.
+
+### 8) Re-deployment workflow for future changes
+
+- Infrastructure changes: update `infra/main.bicep` and/or `infra/main.parameters.json`, then rerun the Bicep deployment command.
+- Runtime policy/client changes: update `src/AzureDdns.FunctionApp/config/dyndns.json`, republish, and redeploy the app package.
+- Always rerun smoke validation after either type of change.
+
+### Optional: local-only run before Azure deployment
+
+If desired, validate behavior locally first:
+
+1. Copy `src/AzureDdns.FunctionApp/local.settings.json.example` to `src/AzureDdns.FunctionApp/local.settings.json`.
+2. Set local values for `DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, and `CONFIG_PATH`.
+3. Run the app locally and test the `/api/update` endpoint with your configured client credentials.
 
 ## Operational checklist
 

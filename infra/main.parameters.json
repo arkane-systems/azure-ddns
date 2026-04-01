@@ -3,23 +3,23 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "baseName": {
-      "value": "azureddns"
+      "value": "<app base name>"
     },
     "environmentName": {
       "value": "production"
     },
     "location": {
-      "value": "centralus"
+      "value": "<azure-region>"
     },
     "dnsSubscriptionId": {
-      "value": "3b7a3c63-ca1c-406b-8569-f894d0326c49"
+      "value": "<dns-subscription-id>"
     },
     "dnsResourceGroup": {
-      "value": "Standard"
+      "value": "<dns-resource-group>"
     },
     "dnsZoneNames": {
       "value": [
-        "arkane-systems.net"
+        "<dns-zone-name>"
       ]
     },
     "functionAppName": {
