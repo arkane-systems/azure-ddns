@@ -1,21 +1,21 @@
 {
   "zones": {
-    "arkane-systems.net": {
+    "<zone-name>": {
       "ttl": 300
     }
   },
   "clients": [
     {
-      "name": "stargate",
-      "keyHash": "6ae734fab022e710bfe5342d2034ad10ef778cf74283ef2b8bbf63be66dc33bf",
+      "name": "<client-name>",
+      "keyHash": "<sha-256-hash-of-access-key>",
       "allowedRecords": [
         {
-          "zone": "arkane-systems.net",
-          "name": "stargate"
+          "zone": "<zone-name>",
+          "name": "<record-name>"
         },
         {
-          "zone": "arkane-systems.net",
-          "name": "smoke"
+          "zone": "<zone-name>",
+          "name": "<record-name>"
         }
       ]
     }
