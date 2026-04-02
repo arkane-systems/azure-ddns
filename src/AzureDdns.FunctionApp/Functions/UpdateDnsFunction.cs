@@ -7,11 +7,13 @@
 // 
 // Copyright Arkane Systems 2012-2018.  All rights reserved.
 // 
-// Created: 2026-03-30 7:41 PM
+// Created: 2026-04-01 9:34 AM
 
 #endregion
 
 #region using
+
+using System.Net;
 
 using Azure;
 
@@ -22,39 +24,34 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 #endregion
 
 namespace AzureDdns.FunctionApp.Functions;
 
-public sealed class UpdateDnsFunction
+/// <summary>
+///   Coordinates dynamic DNS update requests end-to-end.
+/// </summary>
+/// <remarks>
+///   The function intentionally keeps transport concerns (HTTP query parsing and response formatting)
+///   in this class while delegating authentication, IP resolution, and DNS operations to services.
+///   This keeps behavior testable and makes it easier to evolve service logic independently.
+/// </remarks>
+public sealed class UpdateDnsFunction (
+  IConfigProvider            configProvider,
+  IAuthService               authService,
+  IIpResolver                ipResolver,
+  IDnsUpdateService          dnsUpdateService,
+  IOptions<RuntimeSettings>  runtimeSettings,
+  ILogger<UpdateDnsFunction> logger)
 {
-  /// <summary>
-  ///   Coordinates dynamic DNS update requests end-to-end.
-  /// </summary>
-  /// <remarks>
-  ///   The function intentionally keeps transport concerns (HTTP query parsing and response formatting)
-  ///   in this class while delegating authentication, IP resolution, and DNS operations to services.
-  ///   This keeps behavior testable and makes it easier to evolve service logic independently.
-  /// </remarks>
-  public UpdateDnsFunction (IConfigProvider            configProvider,
-                            IAuthService               authService,
-                            IIpResolver                ipResolver,
-                            IDnsUpdateService          dnsUpdateService,
-                            ILogger<UpdateDnsFunction> logger)
-  {
-    this.configProvider   = configProvider;
-    this.authService      = authService;
-    this.ipResolver       = ipResolver;
-    this.dnsUpdateService = dnsUpdateService;
-    this.logger           = logger;
-  }
-
-  private readonly IAuthService               authService;
-  private readonly IConfigProvider            configProvider;
-  private readonly IDnsUpdateService          dnsUpdateService;
-  private readonly IIpResolver                ipResolver;
-  private readonly ILogger<UpdateDnsFunction> logger;
+  private readonly IAuthService               authService      = authService;
+  private readonly IConfigProvider            configProvider   = configProvider;
+  private readonly IDnsUpdateService          dnsUpdateService = dnsUpdateService;
+  private readonly IIpResolver                ipResolver       = ipResolver;
+  private readonly ILogger<UpdateDnsFunction> logger           = logger;
+  private readonly RuntimeSettings            runtimeSettings  = runtimeSettings.Value;
 
   /// <summary>
   ///   Handles a DDNS update request and writes the matching <c>A</c> or <c>AAAA</c> record to Azure DNS.
@@ -111,6 +108,41 @@ public sealed class UpdateDnsFunction
       return Error (statusCode: StatusCodes.Status403Forbidden, message: "unauthorized record");
 
     IpResolutionResult resolution = this.ipResolver.Resolve (request: request, explicitIp: explicitIp);
+
+    this.logger.LogInformation (message:
+                                "IP resolution diagnostics for {Record}.{Zone}: remote={RemoteIp}, source={SourceIp}, trustedProxyHop={TrustedProxyHop}, parsedForwardedFor={ParsedForwardedFor}, parsedClientIp={ParsedClientIp}, xForwardedFor={XForwardedFor}, forwarded={Forwarded}, xOriginalFor={XOriginalFor}, xRealIp={XRealIp}, clientIp={ClientIp}.",
+                                name,
+                                zone,
+                                resolution.Diagnostics.RemoteIp,
+                                resolution.SourceIp,
+                                resolution.Diagnostics.TrustedProxyHop,
+                                resolution.Diagnostics.ForwardedForIp,
+                                resolution.Diagnostics.ClientIp,
+                                resolution.Diagnostics.ForwardedForHeader,
+                                resolution.Diagnostics.ForwardedHeader,
+                                resolution.Diagnostics.XOriginalForHeader,
+                                resolution.Diagnostics.XRealIpHeader,
+                                resolution.Diagnostics.ClientIpHeader);
+
+    if (this.runtimeSettings.LogAllRequestHeadersForIpDiagnostics)
+    {
+      Dictionary<string, string> headers = request.Headers.ToDictionary (keySelector: pair => pair.Key,
+                                                                         elementSelector: pair => IsSensitiveHeader (pair.Key)
+                                                                                                    ? "<redacted>"
+                                                                                                    : pair.Value.ToString (),
+                                                                         comparer: StringComparer.OrdinalIgnoreCase);
+
+      this.logger.LogInformation (message: "Full request header diagnostics for {Record}.{Zone}: {@Headers}",
+                                  name,
+                                  zone,
+                                  headers);
+    }
+
+    if (resolution.SourceIp is not null && IPAddress.IsLoopback (resolution.SourceIp))
+      this.logger.LogWarning (message:
+                              "Source IP resolved to loopback for {Record}.{Zone}; confirm reverse-proxy header forwarding configuration.",
+                              name,
+                              zone);
 
     if (resolution.EffectiveIp is null)
       return Error (statusCode: StatusCodes.Status400BadRequest,
@@ -196,4 +228,11 @@ public sealed class UpdateDnsFunction
   /// </summary>
   private static ContentResult Error (int statusCode, string message)
     => new () { Content = $"ERROR: {message}", ContentType = "text/plain", StatusCode = statusCode, };
+
+  private static bool IsSensitiveHeader (string headerName)
+    => headerName.Equals (value: "Authorization",               comparisonType: StringComparison.OrdinalIgnoreCase) ||
+       headerName.Equals (value: "Cookie",                      comparisonType: StringComparison.OrdinalIgnoreCase) ||
+       headerName.Equals (value: "Set-Cookie",                  comparisonType: StringComparison.OrdinalIgnoreCase) ||
+       headerName.Equals (value: "X-Functions-Key",             comparisonType: StringComparison.OrdinalIgnoreCase) ||
+       headerName.Equals (value: "x-ms-token-aad-access-token", comparisonType: StringComparison.OrdinalIgnoreCase);
 }
