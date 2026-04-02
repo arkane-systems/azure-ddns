@@ -75,13 +75,12 @@ From `infra/main.bicep`:
 These are set in `siteConfig.appSettings` during deployment:
 
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
-- `FUNCTIONS_EXTENSION_VERSION` (`~4`)
-- `FUNCTIONS_WORKER_RUNTIME` (`dotnet-isolated`)
 - `AZURE_FUNCTIONS_ENVIRONMENT` (from `environmentName`)
 - `DNS_SUBSCRIPTION_ID`
 - `DNS_RESOURCE_GROUP`
 - `CONFIG_PATH` (`config/dyndns.json`)
 - `AzureWebJobsStorage`
+- `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
 
 No manual portal configuration is required for these values in normal deployments.
 
