@@ -2,22 +2,29 @@
 
 This document is the operational playbook for deploying and validating this project.
 
-## 0) GitHub workflow model (manual and split)
+## 0) Deployment model
 
-This repository uses two manually triggered workflows to keep infrastructure and app deployments independent:
+This repository uses a manual CLI-based deployment model with two independent phases:
 
-1. `Deploy Infrastructure` (`.github/workflows/deploy-infrastructure.yml`)
-2. `Deploy Application` (`.github/workflows/deploy-application.yml`)
+1. **Infrastructure deployment** — deploys Azure resources via `infra/main.bicep` using the Azure CLI
+2. **Application deployment** — publishes and packages the .NET Function App, then deploys the zip package to the Function App
 
-Both workflows support deploy-time ref selection (`ref` input), so you can deploy from a specific branch, tag, or commit SHA.
+The two phases can be run independently, which allows infrastructure and app code to be updated separately.
 
-### Required repository secrets
+### Required tooling
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
+- Azure CLI (`az`)
+- .NET 8 SDK
+- PowerShell (for smoke testing)
 
-These are used for OIDC-based login via `azure/login@v2`.
+### Authentication
+
+Authenticate interactively using the Azure CLI before running any deployment steps:
+
+```pwsh
+az login
+az account set --subscription <subscription-id>
+```
 
 ## 1) Deployment target and assumptions
 
