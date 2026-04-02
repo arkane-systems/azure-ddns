@@ -56,10 +56,9 @@ Confirm these are present on the Function App:
 - `DNS_SUBSCRIPTION_ID`
 - `DNS_RESOURCE_GROUP`
 - `CONFIG_PATH` (expected `config/dyndns.json`)
-- `FUNCTIONS_WORKER_RUNTIME` (`dotnet-isolated`)
-- `FUNCTIONS_EXTENSION_VERSION` (`~4`)
 - `AzureWebJobsStorage`
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
+- `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
 
 ## 5) Verify identity and RBAC
 
