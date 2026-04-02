@@ -181,6 +181,10 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           value: 'config/dyndns.json'
         }
         {
+          name: 'LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS'
+          value: 'false'
+        }
+        {
           name: 'AzureWebJobsStorage'
           value: azureWebJobsStorageConnectionString
         }

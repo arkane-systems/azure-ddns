@@ -45,6 +45,7 @@ public sealed class IpResolver : IIpResolver
   private const string ForwardedHeaderName    = "Forwarded";
   private const string XOriginalForHeaderName = "X-Original-For";
   private const string XRealIpHeaderName      = "X-Real-IP";
+  private const string ClientIpHeaderName     = "CLIENT-IP";
 
   /// <summary>
   ///   Determines which IP address should be written to DNS.
@@ -58,9 +59,9 @@ public sealed class IpResolver : IIpResolver
     ArgumentNullException.ThrowIfNull (request);
 
     IpResolutionDiagnostics diagnostics = CreateDiagnostics (request);
-    IPAddress?             sourceIp    = !diagnostics.TrustedProxyHop
-                                          ? diagnostics.RemoteIp
-                                          : diagnostics.ForwardedForIp ?? diagnostics.RemoteIp;
+    IPAddress? sourceIp = !diagnostics.TrustedProxyHop
+                            ? diagnostics.RemoteIp
+                            : diagnostics.ForwardedForIp ?? diagnostics.ClientIp ?? diagnostics.RemoteIp;
 
     if (string.IsNullOrWhiteSpace (explicitIp))
       return new IpResolutionResult (EffectiveIp: sourceIp,
@@ -90,10 +91,12 @@ public sealed class IpResolver : IIpResolver
     return new IpResolutionDiagnostics (RemoteIp: remoteIp,
                                         TrustedProxyHop: trustedProxyHop,
                                         ForwardedForIp: trustedProxyHop ? TryGetForwardedForIp (request) : null,
-                                        ForwardedForHeader: GetHeaderValue (request, ForwardedForHeaderName),
-                                        ForwardedHeader: GetHeaderValue (request, ForwardedHeaderName),
-                                        XOriginalForHeader: GetHeaderValue (request, XOriginalForHeaderName),
-                                        XRealIpHeader: GetHeaderValue (request, XRealIpHeaderName));
+                                        ClientIp: trustedProxyHop ? TryGetClientIp (request) : null,
+                                        ForwardedForHeader: GetHeaderValue (request: request, headerName: ForwardedForHeaderName),
+                                        ForwardedHeader: GetHeaderValue (request: request,    headerName: ForwardedHeaderName),
+                                        XOriginalForHeader: GetHeaderValue (request: request, headerName: XOriginalForHeaderName),
+                                        XRealIpHeader: GetHeaderValue (request: request,      headerName: XRealIpHeaderName),
+                                        ClientIpHeader: GetHeaderValue (request: request,     headerName: ClientIpHeaderName));
   }
 
   private static string? GetHeaderValue (HttpRequest request, string headerName)
@@ -101,7 +104,7 @@ public sealed class IpResolver : IIpResolver
     if (!request.Headers.TryGetValue (key: headerName, value: out StringValues headerValues))
       return null;
 
-    string value = string.Join (", ", headerValues);
+    string value = string.Join (separator: ", ", value: headerValues!);
 
     return string.IsNullOrWhiteSpace (value) ? null : value;
   }
@@ -121,6 +124,23 @@ public sealed class IpResolver : IIpResolver
         if (TryParseForwardedForEntry (entry: entry, ipAddress: out IPAddress? parsedAddress))
           return parsedAddress;
       }
+    }
+
+    return null;
+  }
+
+  private static IPAddress? TryGetClientIp (HttpRequest request)
+  {
+    if (!request.Headers.TryGetValue (key: ClientIpHeaderName, value: out StringValues clientIpValues))
+      return null;
+
+    foreach (string? value in clientIpValues)
+    {
+      if (string.IsNullOrWhiteSpace (value))
+        continue;
+
+      if (TryParseForwardedForEntry (entry: value, ipAddress: out IPAddress? parsedAddress))
+        return parsedAddress;
     }
 
     return null;
@@ -201,13 +221,16 @@ public sealed class IpResolver : IIpResolver
 /// <summary>
 ///   Captures request networking context used during effective source IP resolution.
 /// </summary>
-public sealed record IpResolutionDiagnostics (IPAddress? RemoteIp,
-                                              bool       TrustedProxyHop,
-                                              IPAddress? ForwardedForIp,
-                                              string?    ForwardedForHeader,
-                                              string?    ForwardedHeader,
-                                              string?    XOriginalForHeader,
-                                              string?    XRealIpHeader);
+public sealed record IpResolutionDiagnostics (
+  IPAddress? RemoteIp,
+  bool       TrustedProxyHop,
+  IPAddress? ForwardedForIp,
+  IPAddress? ClientIp,
+  string?    ForwardedForHeader,
+  string?    ForwardedHeader,
+  string?    XOriginalForHeader,
+  string?    XRealIpHeader,
+  string?    ClientIpHeader);
 
 /// <summary>
 ///   Captures resolved IP details for DDNS update and diagnostics.
@@ -216,7 +239,8 @@ public sealed record IpResolutionDiagnostics (IPAddress? RemoteIp,
 /// <param name="SourceIp">Remote source IP from the incoming request context.</param>
 /// <param name="ExplicitIpMismatch">Indicates caller-supplied IP differs from request source IP.</param>
 /// <param name="Diagnostics">Network context captured while resolving effective and source IP values.</param>
-public sealed record IpResolutionResult (IPAddress?             EffectiveIp,
-                                         IPAddress?             SourceIp,
-                                         bool                   ExplicitIpMismatch,
-                                         IpResolutionDiagnostics Diagnostics);
+public sealed record IpResolutionResult (
+  IPAddress?              EffectiveIp,
+  IPAddress?              SourceIp,
+  bool                    ExplicitIpMismatch,
+  IpResolutionDiagnostics Diagnostics);

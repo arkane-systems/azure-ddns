@@ -96,4 +96,9 @@ public sealed class RuntimeSettings
     ///   Path to the DDNS configuration file (absolute or relative to app base directory).
     /// </summary>
     public string ConfigPath { get; set; } = "config/dyndns.json";
+
+    /// <summary>
+    ///   Enables temporary logging of all incoming request headers for IP diagnostics.
+    /// </summary>
+    public bool LogAllRequestHeadersForIpDiagnostics { get; set; }
 }

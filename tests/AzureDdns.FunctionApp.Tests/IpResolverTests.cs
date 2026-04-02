@@ -109,6 +109,20 @@ public sealed class IpResolverTests
         Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.SourceIp);
     }
 
+    [Fact]
+    public void Resolve_UsesClientIpHeader_WhenTrustedProxyHopAndForwardedForMissing ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "::1");
+        request.Headers["CLIENT-IP"] = "99.87.210.81:55096";
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("99.87.210.81"), actual: result.EffectiveIp);
+        Assert.Equal (expected: IPAddress.Parse ("99.87.210.81"), actual: result.SourceIp);
+        Assert.Equal (expected: IPAddress.Parse ("99.87.210.81"), actual: result.Diagnostics.ClientIp);
+        Assert.Equal (expected: "99.87.210.81:55096", actual: result.Diagnostics.ClientIpHeader);
+    }
+
     private static HttpRequest CreateRequest (string remoteIp, string? forwardedFor = null)
     {
         var context = new DefaultHttpContext ();

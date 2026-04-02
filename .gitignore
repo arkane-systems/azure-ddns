@@ -21,3 +21,4 @@ coverage/
 
 # Azure Functions
 .azurefunctions/
+/out/functionapp
