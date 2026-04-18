@@ -53,6 +53,7 @@ IHost host = new HostBuilder ()
                                   // Service registrations remain singleton because services are stateless or config-backed.
                                   _ = services.AddSingleton<IConfigProvider, FileConfigProvider> ();
                                   _ = services.AddSingleton<IAuthService, AuthService> ();
+                                  _ = services.AddSingleton<IFqdnResolver, FqdnResolver> ();
                                   _ = services.AddSingleton<IIpResolver, IpResolver> ();
                                   _ = services.AddSingleton<IDnsUpdateService, DnsUpdateService> ();
                                 })

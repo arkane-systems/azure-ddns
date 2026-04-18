@@ -4,7 +4,10 @@ Azure Functions-based dynamic DNS updater for Azure DNS zones.
 
 ## What this project does
 
-This project provides a small HTTP endpoint that dynamic DNS clients (for example OpenWRT routers) can call to keep Azure DNS records current.
+This project provides HTTP endpoints that dynamic DNS clients can call to keep Azure DNS records current.
+Two endpoint contracts are supported:
+
+### Custom endpoint (`/api/update`) — for OpenWRT and similar
 
 - Endpoint contract: `GET /api/update?client=<name>&key=<raw-key>&zone=<zone>&name=<record>[&ip=<address>]`
 - Authentication: client name + raw key (validated against SHA-256 hash in config)
@@ -13,6 +16,13 @@ This project provides a small HTTP endpoint that dynamic DNS clients (for exampl
   - IPv4 -> `A` record only
   - IPv6 -> `AAAA` record only
 
+### DynDNS v2 endpoint (`/api/nic/update`) — for Unifi and ddclient-compatible routers
+
+- Endpoint contract: `GET /api/nic/update?hostname=<fqdn>[&myip=<address>]`
+- Authentication: HTTP Basic Auth (`Authorization: Basic base64(clientname:rawkey)`)
+- FQDN zone inference: the zone is determined automatically from the hostname and configured zones
+- Record behavior: same as above — only the matching address family is updated
+
 ## Current architecture
 
 - Runtime: .NET 8 isolated Azure Functions
@@ -20,7 +30,7 @@ This project provides a small HTTP endpoint that dynamic DNS clients (for exampl
 - DNS backend: Azure DNS via Azure SDK and managed identity
 - Config source: packaged file `config/dyndns.json` (by design, to keep complexity low)
 
-### Request processing flow
+### Request processing flow (`/api/update`)
 
 1. Function receives `GET /api/update` request.
 2. Query parameters are validated (`client`, `key`, `zone`, `name`; optional `ip`).
@@ -33,7 +43,21 @@ This project provides a small HTTP endpoint that dynamic DNS clients (for exampl
 7. DNS update is sent to Azure DNS using managed identity.
 8. Plain-text response is returned for DDNS client compatibility.
 
-## Response contract
+### Request processing flow (`/api/nic/update`)
+
+1. Function receives `GET /api/nic/update` request.
+2. `Authorization: Basic` header is parsed for client name and raw key.
+3. `config/dyndns.json` is loaded.
+4. `hostname` FQDN is resolved to a configured zone and relative record name (longest-suffix match).
+5. Client is authenticated by comparing SHA-256 hash of provided key.
+6. Requested record is authorized for that client.
+7. Effective IP is resolved:
+   - `myip` query value if provided and valid
+   - otherwise source IP from connection
+8. DNS update is sent to Azure DNS using managed identity.
+9. DynDNS v2 plain-text response is returned.
+
+## Response contract (`/api/update`)
 
 Responses are plain text and stable for client compatibility:
 
@@ -44,11 +68,104 @@ Responses are plain text and stable for client compatibility:
 - Azure DNS backend failure: HTTP `502`
 - Server/configuration failure: HTTP `500`
 
+## Response contract (`/api/nic/update`)
+
+Responses are plain text per DynDNS v2 specification:
+
+| Body | HTTP status | Meaning |
+|---|---|---|
+| `good <ip>` | 200 | Update succeeded |
+| `badauth` | 401 | Credentials missing or invalid |
+| `nohost` | 200 | FQDN not resolvable to a configured zone/record, or record not authorized |
+| `911` | 200 | Server-side error (configuration or DNS update failure) |
+
+> **Note**: `nohost` is returned for both missing and unauthorized records to avoid leaking information about configured zones.
+
+> **Note**: This endpoint always returns `good <ip>` on success. It never returns `nochg` — a no-change check is not performed.
+
+## Configuring Unifi Express 7 Cloud Gateway
+
+The Unifi Express 7 custom DDNS dialog has four fields: **Hostname**, **Username**, **Password**, and **Server**.
+Because the `{IP}` and `{IP6}` placeholders go in the Server URL, IPv4 and IPv6 require **two separate DDNS entries**.
+
+### Step-by-step
+
+1. Open the Unifi console and navigate to **Settings → Internet → WAN** (or **Dynamic DNS** in the sidebar, depending on firmware version).
+2. Click **Add Dynamic DNS** (or the `+` button).
+3. Set **Service** to **Custom** (or **dyndns** in older firmware — the field layout is the same).
+4. Fill in the fields for the **IPv4 entry**:
+
+   | Field | Value |
+   |---|---|
+   | **Hostname** | The FQDN to update, e.g. `home.example.com` |
+   | **Username** | The client name from `dyndns.json`, e.g. `my-router` |
+   | **Password** | The raw key for that client (not the hash) |
+   | **Server** | `<func-app-url>/api/nic/update?hostname={HOSTNAME}&myip={IP}` |
+
+   Replace `<func-app-url>` with your Function App base URL, e.g. `https://my-ddns.azurewebsites.net`.
+
+5. Save the entry.
+6. Repeat, adding a second entry for the **IPv6 entry** with the same Hostname, Username, and Password but with `{IP6}` instead of `{IP}` in the Server URL:
+
+   | Field | Value |
+   |---|---|
+   | **Hostname** | `home.example.com` |
+   | **Username** | `my-router` |
+   | **Password** | *same raw key* |
+   | **Server** | `<func-app-url>/api/nic/update?hostname={HOSTNAME}&myip={IP6}` |
+
+7. Save. Unifi will now call the endpoint on WAN IP changes, passing the current IPv4 or IPv6 address respectively.
+
+> **Credentials placement**: put credentials only in the **Username** and **Password** fields, not in the Server URL.
+> Unifi encodes them into the HTTP `Authorization: Basic` header automatically. Embedding them in the URL is unnecessary and may expose them in logs.
+
+### Template variable syntax by firmware version
+
+If the `{HOSTNAME}`/`{IP}`/`{IP6}` placeholders are not substituted by your firmware, use the older `%h`/`%i`/`%i6` variants:
+
+| Placeholder | Newer firmware | Older firmware |
+|---|---|---|
+| FQDN (hostname field value) | `{HOSTNAME}` | `%h` |
+| IPv4 address | `{IP}` | `%i` |
+| IPv6 address | `{IP6}` | `%i6` |
+
+Example Server URL with older syntax: `<func-app-url>/api/nic/update?hostname=%h&myip=%i`
+
+Check your firmware release notes or the Unifi community documentation to determine which syntax your version supports.
+
+### Prerequisites in `dyndns.json`
+
+No separate configuration section is needed for the DynDNS endpoint. The same `config/dyndns.json` client entries
+work for both `/api/update` and `/api/nic/update`. Ensure the client entry includes an `allowedRecords` entry for
+the zone and record name corresponding to the FQDN you are updating:
+
+```json
+{
+  "zones": {
+    "example.com": { "ttl": 60 }
+  },
+  "clients": [
+    {
+      "name": "my-router",
+      "keyHash": "<sha256-hex-of-raw-key>",
+      "allowedRecords": [
+        { "zone": "example.com", "name": "home" }
+      ]
+    }
+  ]
+}
+```
+
+The zone is determined automatically from the FQDN: `home.example.com` maps to record `home` in zone `example.com`.
+For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowedRecords`.
+
 ## Repository layout
 
 - `src/AzureDdns.FunctionApp` - Function app code
-  - `Functions/UpdateDnsFunction.cs` - HTTP entrypoint and orchestration
+  - `Functions/UpdateDnsFunction.cs` - HTTP entrypoint for `/api/update`
+  - `Functions/DyndnsUpdateFunction.cs` - HTTP entrypoint for `/api/nic/update` (DynDNS v2)
   - `Services/AuthService.cs` - authentication + authorization checks
+  - `Services/FqdnResolver.cs` - FQDN to zone/record resolution (used by DynDNS endpoint)
   - `Services/IpResolver.cs` - source/explicit IP handling
   - `Services/DnsUpdateService.cs` - Azure DNS SDK update logic
   - `Services/ConfigProvider.cs` - reads DDNS config JSON
@@ -277,4 +394,5 @@ If you revisit this repo after a long gap, start in this order:
 1. `README.md` (high-level model + references)
 2. `docs/deployment-plan.md` (exact deploy/validate procedure)
 3. `infra/main.bicep` (what is provisioned and why)
-4. `src/AzureDdns.FunctionApp/Functions/UpdateDnsFunction.cs` (runtime request flow)
+4. `src/AzureDdns.FunctionApp/Functions/UpdateDnsFunction.cs` (custom endpoint request flow)
+5. `src/AzureDdns.FunctionApp/Functions/DyndnsUpdateFunction.cs` (DynDNS v2 endpoint request flow)
