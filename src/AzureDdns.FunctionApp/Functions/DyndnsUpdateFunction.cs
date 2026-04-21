@@ -155,8 +155,40 @@ public sealed class DyndnsUpdateFunction (
     }
 
     // Step 7: Write the DNS record and return the appropriate DynDNS response code.
-    ZoneConfig zoneConfig = config.Zones[resolution.Zone];
+    //         FqdnResolver normalizes zones by trimming whitespace and a trailing dot.
+    //         Configuration keys may retain their original formatting, so avoid direct
+    //         dictionary indexing here and perform a normalization-aware lookup instead.
+    static string NormalizeZoneKey (string zone)
+    {
+      return zone.Trim ().TrimEnd ('.');
+    }
 
+    ZoneConfig? zoneConfig = null;
+
+    if (!config.Zones.TryGetValue (resolution.Zone, out zoneConfig))
+    {
+      string normalizedResolvedZone = NormalizeZoneKey (resolution.Zone);
+
+      foreach ((string configuredZoneKey, ZoneConfig configuredZone) in config.Zones)
+      {
+        if (string.Equals (NormalizeZoneKey (configuredZoneKey),
+                           normalizedResolvedZone,
+                           StringComparison.OrdinalIgnoreCase))
+        {
+          zoneConfig = configuredZone;
+          break;
+        }
+      }
+    }
+
+    if (zoneConfig is null)
+    {
+      this.logger.LogError (message: "DynDNS: resolved zone {Zone} did not match any configured zone key. " +
+                                    "Check zone key normalization in configuration.",
+                            resolution.Zone);
+
+      return ServerError ();
+    }
     try
     {
       UpdateDnsResult result = await this.dnsUpdateService.UpdateAsync (zone: resolution.Zone,
