@@ -148,6 +148,7 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
 | `AZURE_FUNCTIONS_ENVIRONMENT` | Recommended | Environment label (`Development`, `Production`, etc.) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Recommended | Application Insights connection |
 | `AzureWebJobsStorage` | Required in Azure | Functions host storage connection |
+| `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Yes | Enables/disables IP header logging' default is `false`. |
 
 ### DDNS config file (`config/dyndns.json`)
 
