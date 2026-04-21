@@ -164,6 +164,17 @@ function Invoke-DynDnsUpdate
     [string]$ExpectedRecordType
   )
 
+  $parsedIpAddress = $null
+  if (-not [System.Net.IPAddress]::TryParse($IpAddress, [ref]$parsedIpAddress))
+  {
+    throw "IpAddress '$IpAddress' is not a valid IP address."
+  }
+
+  $actualRecordType = if ($parsedIpAddress.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6) { 'AAAA' } else { 'A' }
+  if ($actualRecordType -ne $ExpectedRecordType)
+  {
+    throw "IpAddress '$IpAddress' does not match expected record type '$ExpectedRecordType'. Detected record type '$actualRecordType'."
+  }
   $basicAuthHeader = New-BasicAuthHeader -Username $Client -Password $Key
 
   $query = New-QueryString @{
