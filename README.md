@@ -123,6 +123,13 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
   - `local.settings.json.example` - local app settings template
 - `tests/AzureDdns.FunctionApp.Tests` - xUnit tests
 - `scripts/smoke-test.ps1` - post-deployment smoke test for end-to-end DDNS validation
+- `unifi-client/` - Python DDNS client for Unifi gateways (see [`unifi-client/README.md`](unifi-client/README.md))
+  - `arkane-ddns-client.py` - main update script supporting IPv4 and IPv6
+  - `arkane-ddns-client.conf.example` - configuration template
+  - `arkane-ddns-client.service` - systemd service unit
+  - `arkane-ddns-client.timer` - systemd timer unit (runs every 5 minutes)
+  - `install.sh` - deployment helper script for Unifi gateways
+  - `README.md` - setup, configuration, and troubleshooting guide
 - `infra/main.bicep` - infrastructure definition
 - `infra/modules/dns-zone-rbac.bicep` - optional zone-scoped RBAC assignment module
 - `infra/main.parameters.json` - deploy-time parameter values

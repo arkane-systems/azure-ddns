@@ -1,0 +1,40 @@
+# Configuration file for arkane-ddns-client
+# 
+# Copy this file to /usr/local/etc/arkane-ddns-client.conf and update the values
+# for your environment. Keep this file readable only by root (chmod 600) since
+# it contains your raw API key.
+
+[api]
+# Azure DDNS API endpoint base URL (without the /api/update path)
+endpoint = https://your-function-app.azurewebsites.net
+
+# Client name configured in Azure DDNS config/dyndns.json
+client = my-gateway-client
+
+# Raw (unhashed) client key - KEEP THIS SECURE!
+key = your-raw-client-key-here
+
+# DNS zone to update (e.g., example.com)
+zone = example.com
+
+# Record name within the zone to update (relative name, e.g., "home" or "@" for apex)
+record = home
+
+[interface]
+# WAN interface name to monitor for public IP addresses.
+# On most Unifi gateways this is eth1, but it may vary by model.
+# Default: eth1 (can be omitted to use default)
+wan = eth1
+
+[options]
+# Enable IPv4 (A record) updates
+# Default: true
+enable_ipv4 = true
+
+# Enable IPv6 (AAAA record) updates
+# Default: true
+enable_ipv6 = true
+
+# Enable debug logging to syslog (very verbose)
+# Default: false
+debug = false
