@@ -85,8 +85,9 @@ public sealed class DyndnsUpdateFunction (
   ///   record to Azure DNS.
   /// </summary>
   /// <remarks>
-  ///   Execution order mirrors the existing <c>UpdateDnsFunction</c>:
-  ///   authenticate -> resolve hostname -> authorise -> resolve IP -> update DNS.
+  ///   Execution order is: resolve hostname -> authenticate -> authorise -> resolve IP -> update DNS.
+  ///   This means an unknown or unmapped hostname can return <c>nohost</c> before credentials are
+  ///   validated, which matches the current implementation and DynDNS response mapping used here.
   ///   Responses use the DynDNS v2 response codes rather than the custom <c>OK:</c>/<c>ERROR:</c>
   ///   convention so that Unifi and other DynDNS-aware clients can interpret results correctly.
   /// </remarks>
