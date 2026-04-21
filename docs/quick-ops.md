@@ -7,22 +7,25 @@ For full background and detailed explanations, see:
 - `README.md`
 - `docs/deployment-plan.md`
 
-## 0) Manual GitHub workflow deployment
+## 0) Manual deployment model
 
-Two manual workflows are available:
+Deployment uses two independent CLI-driven phases:
 
-- `Deploy Infrastructure`
-  - Inputs: `ref`, `resourceGroup`, `runWhatIf`
-- `Deploy Application`
-  - Inputs: `ref`, `functionAppName`, `runTests`
+**1. Infrastructure**
 
-Required repository secrets:
+```pwsh
+az login
+az account set --subscription <subscription-id>
+az deployment group create --resource-group <app-resource-group> --template-file infra/main.bicep --parameters @infra/main.parameters.json
+```
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
+**2. Application**
 
-Use these workflows when you want branch-selectable, independently repeatable infra vs app redeployments.
+```pwsh
+dotnet publish src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj -c Release -o out/functionapp
+# create a zip from out/functionapp/
+az functionapp deployment source config-zip --name <function-app-name> --resource-group <resource-group> --src <path-to-zip>
+```
 
 ## 1) Validate before deploy
 
@@ -40,7 +43,11 @@ az deployment group create --resource-group <app-resource-group> --template-file
 
 ## 3) Deploy app code
 
-Use your normal Function App deployment workflow (for example Azure Developer CLI or CI pipeline) after infra succeeds.
+```pwsh
+dotnet publish src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj -c Release -o out/functionapp
+# create a zip from out/functionapp/
+az functionapp deployment source config-zip --name <function-app-name> --resource-group <resource-group> --src <path-to-zip>
+```
 
 ## 4) Verify app settings
 
@@ -49,10 +56,9 @@ Confirm these are present on the Function App:
 - `DNS_SUBSCRIPTION_ID`
 - `DNS_RESOURCE_GROUP`
 - `CONFIG_PATH` (expected `config/dyndns.json`)
-- `FUNCTIONS_WORKER_RUNTIME` (`dotnet-isolated`)
-- `FUNCTIONS_EXTENSION_VERSION` (`~4`)
 - `AzureWebJobsStorage`
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
+- `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
 
 ## 5) Verify identity and RBAC
 
