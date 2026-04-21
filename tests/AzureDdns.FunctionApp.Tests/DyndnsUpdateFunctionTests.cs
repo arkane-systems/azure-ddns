@@ -124,7 +124,7 @@ public sealed class DyndnsUpdateFunctionTests
   }
 
   [Fact]
-  public async Task RunAsync_ReturnsBadauth_WhenCredentialsInvalid ()
+  public async Task RunAsync_ReturnsBadauth_WhenCredentialsInvalid_AndHostnameKnown ()
   {
     var config = BuildConfig ();
     DyndnsUpdateFunction function = CreateFunction (config: config,
