@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # install.sh - Install arkane-ddns-client on a Unifi gateway
 #
 # This script is designed to run ON the Unifi gateway after files are transferred.

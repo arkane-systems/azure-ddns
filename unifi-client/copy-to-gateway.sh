@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # copy-to-gateway.sh - Transfer arkane-ddns-client files to a Unifi gateway via scp
 #
 # This script copies all necessary files from the repo to a Unifi gateway and
