@@ -24,9 +24,58 @@ The client is configured via a single INI file and requires only Python 2.7 and 
 
 ## Quick Start
 
-### 1. Prepare the Configuration File
+### Option 1: SCP-based Deployment (Recommended)
 
-Copy `arkane-ddns-client.conf.example` to `/usr/local/etc/arkane-ddns-client.conf` on your gateway and edit it:
+This approach copies files from your development machine to the gateway without requiring git or any tools on the gateway.
+
+**From your development machine (where the repo is cloned):**
+
+```bash
+# Copy files to gateway and stage them
+bash unifi-client/copy-to-gateway.sh 192.168.1.1
+
+# Then on the gateway, run the install script manually
+ssh root@192.168.1.1
+sudo bash /root/arkane-ddns-client-staging/install.sh
+```
+
+Or, if your gateway is configured for passwordless sudo, automate the whole process:
+
+```bash
+# Copy files AND automatically install
+bash unifi-client/copy-to-gateway.sh 192.168.1.1 --install
+```
+
+If you log in as a non-root user (e.g., `ubnt`), specify the user:
+
+```bash
+bash unifi-client/copy-to-gateway.sh 192.168.1.1 --user ubnt --install
+```
+
+**What this does:**
+- Uses `scp` to copy all files to `/root/arkane-ddns-client-staging/` on the gateway
+- Optionally uses `ssh` to run `install.sh` on the gateway (with `sudo`)
+- No git, cloning, or complex tooling needed on the gateway
+
+### Option 2: Direct Install (If Files Are Already on Gateway)
+
+If you've transferred the files manually or using another method:
+
+```bash
+ssh root@192.168.1.1
+sudo bash /path/to/arkane-ddns-client-staging/install.sh
+```
+
+### 1. After Installation: Prepare the Configuration File
+
+Once files are installed, log into your gateway and edit the configuration:
+
+```bash
+ssh root@192.168.1.1
+vi /usr/local/etc/arkane-ddns-client.conf
+```
+
+Set your values:
 
 ```ini
 [api]
@@ -45,34 +94,16 @@ enable_ipv6 = true
 debug = false
 ```
 
-**Important**: Keep the config file permissions restricted:
-```bash
-chmod 600 /usr/local/etc/arkane-ddns-client.conf
-```
+**Important**: The config file is automatically set to readable only by root (`chmod 600`).
 
-### 2. Install Using the Helper Script
+### 2. Test the Script
 
-On your Unifi gateway:
+Run the script manually to verify configuration:
 
 ```bash
-sudo bash install.sh /path/to/unifi-client
+sudo /usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf
 ```
 
-This will:
-- Copy the Python script to `/usr/local/bin/`
-- Copy the config template to `/usr/local/etc/` (if not already present)
-- Copy systemd units to `/etc/systemd/system/`
-- Create the cache directory at `/var/cache/arkane-ddns-client/`
-
-### 3. Configure Your API Endpoint and Credentials
-
-Edit `/usr/local/etc/arkane-ddns-client.conf` with your:
-- Azure DDNS function app endpoint
-- Client name and raw key (from `config/dyndns.json` in the function app)
-- Zone and record name(s) to update
-- WAN interface name (usually `eth1`, but may vary)
-
-### 4. Test the Script
 
 Run the script manually to verify configuration:
 
@@ -86,7 +117,7 @@ Check for errors or success in the output. Enable debug mode in the config to se
 sudo journalctl -u arkane-ddns-client -f  # Follow live logs
 ```
 
-### 5. Enable Automatic Execution
+### 3. Enable Automatic Execution
 
 Once testing passes, enable the systemd timer:
 
@@ -101,6 +132,77 @@ Verify it's running:
 sudo systemctl status arkane-ddns-client.timer
 sudo systemctl list-timers arkane-ddns-client.timer
 ```
+
+## Deployment Scripts
+
+### `copy-to-gateway.sh` — Transfer Files via SCP
+
+This script runs on your development machine (where the repo is cloned) and transfers all files to the gateway.
+
+**Basic usage:**
+
+```bash
+bash unifi-client/copy-to-gateway.sh <gateway-host> [--install] [--user <username>]
+```
+
+**Options:**
+
+- `<gateway-host>` - Hostname or IP of the gateway (required)
+- `--install` - Automatically run install.sh on the gateway via ssh (optional)
+- `--user <name>` - SSH login user; default is `root` (optional)
+
+**Examples:**
+
+```bash
+# Just copy files; manual install on gateway
+bash unifi-client/copy-to-gateway.sh 192.168.1.1
+
+# Copy and automatically install
+bash unifi-client/copy-to-gateway.sh my-gateway.local --install
+
+# Non-root SSH user; files staged, no auto-install
+bash unifi-client/copy-to-gateway.sh 192.168.1.1 --user ubnt
+
+# Non-root user with auto-install (requires sudo, no password)
+bash unifi-client/copy-to-gateway.sh 192.168.1.1 --user ubnt --install
+```
+
+**What it does:**
+
+1. Uses `scp` to copy all required files to `/root/arkane-ddns-client-staging/` on the gateway
+2. Optionally uses `ssh` to run `install.sh` (if `--install` flag provided)
+3. If auto-install succeeds, cleans up the staging directory
+
+**Why SCP instead of git?**
+
+- No need to install git on the gateway
+- No need to clone the entire repo on the gateway
+- Simple, direct file transfer with standard SSH/SCP tools
+- Staging directory in `/root/` keeps temporary files out of system paths
+
+### `install.sh` — Install and Configure on Gateway
+
+This script runs **on the gateway** and installs files into their final locations.
+
+**Usage (from gateway):**
+
+```bash
+# If files are in staging directory (called from copy-to-gateway.sh)
+sudo bash /root/arkane-ddns-client-staging/install.sh
+
+# Or, if files are in a custom location
+sudo bash /root/arkane-ddns-client-staging/install.sh /path/to/files
+```
+
+**What it does:**
+
+1. Creates `/var/cache/arkane-ddns-client/` with restricted permissions
+2. Copies Python script to `/usr/local/bin/` and makes it executable
+3. Copies config template to `/usr/local/etc/` (if not already present)
+4. Copies systemd units to `/etc/systemd/system/`
+5. Copies documentation to `/usr/local/etc/arkane-ddns-client/`
+6. Reloads the systemd daemon
+7. Cleans up the staging directory (if applicable)
 
 ## Configuration Reference
 
