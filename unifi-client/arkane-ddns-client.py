@@ -118,8 +118,11 @@ def get_interface_addresses(interface):
     return ipv4, ipv6
 
 
-def call_api(endpoint, client, key, zone, record, ip_address, ip_version):
+def call_api(api_base_url, client, key, zone, record, ip_address, ip_version):
     """Call the DDNS API with an IP update using curl."""
+    # Construct full API endpoint URL with path
+    endpoint = api_base_url.rstrip('/') + '/api/update'
+    
     url = '{endpoint}?client={client}&key={key}&zone={zone}&name={record}&ip={ip}'.format(
         endpoint=endpoint,
         client=client,

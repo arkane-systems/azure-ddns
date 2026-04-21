@@ -5,7 +5,7 @@
 # it contains your raw API key.
 
 [api]
-# Azure DDNS API endpoint base URL (without the /api/update path)
+# Azure DDNS API endpoint base URL (WITHOUT the /api/update path - it's added automatically)
 endpoint = https://your-function-app.azurewebsites.net
 
 # Client name configured in Azure DDNS config/dyndns.json
