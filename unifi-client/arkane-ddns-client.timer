@@ -1,0 +1,17 @@
+[Unit]
+Description=Run Arkane DDNS Client every 5 minutes
+Documentation=file:///usr/local/etc/arkane-ddns-client/README.md
+Requires=arkane-ddns-client.service
+
+[Timer]
+# Run every 5 minutes
+OnCalendar=*:0/5
+# Run immediately on boot, then every 5 minutes after
+OnBootSec=30s
+# Randomize run time within a 60-second window to avoid thundering herd
+RandomizedDelaySec=60s
+
+Persistent=true
+
+[Install]
+WantedBy=timers.target

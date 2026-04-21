@@ -1,0 +1,22 @@
+[Unit]
+Description=Arkane DDNS Client for Unifi Gateway
+Documentation=file:///usr/local/etc/arkane-ddns-client/README.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf
+StandardOutput=journal
+StandardError=journal
+User=root
+# Protect against accidental execution with wrong config
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/cache/arkane-ddns-client
+
+# Restart on failure with backoff
+Restart=on-failure
+RestartSec=5
+
+# Timeout after 30 seconds (should complete much faster)
+TimeoutStartSec=30

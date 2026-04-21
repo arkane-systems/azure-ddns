@@ -22,3 +22,8 @@ coverage/
 # Azure Functions
 .azurefunctions/
 /out/functionapp
+
+# Unifi client (deployed instances, cache, config with secrets)
+/unifi-client/arkane-ddns-client.conf
+/unifi-client/.cache/
+

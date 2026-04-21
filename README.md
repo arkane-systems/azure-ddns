@@ -83,56 +83,6 @@ Responses are plain text per DynDNS v2 specification:
 
 > **Note**: This endpoint always returns `good <ip>` on success. It never returns `nochg` — a no-change check is not performed.
 
-## Configuring Unifi Express 7 Cloud Gateway
-
-The Unifi Express 7 custom DDNS dialog has four fields: **Hostname**, **Username**, **Password**, and **Server**.
-Because the `{IP}` and `{IP6}` placeholders go in the Server URL, IPv4 and IPv6 require **two separate DDNS entries**.
-
-### Step-by-step
-
-1. Open the Unifi console and navigate to **Settings → Internet → WAN** (or **Dynamic DNS** in the sidebar, depending on firmware version).
-2. Click **Add Dynamic DNS** (or the `+` button).
-3. Set **Service** to **Custom** (or **dyndns** in older firmware — the field layout is the same).
-4. Fill in the fields for the **IPv4 entry**:
-
-   | Field | Value |
-   |---|---|
-   | **Hostname** | The FQDN to update, e.g. `home.example.com` |
-   | **Username** | The client name from `dyndns.json`, e.g. `my-router` |
-   | **Password** | The raw key for that client (not the hash) |
-   | **Server** | `<func-app-url>/api/nic/update?hostname={HOSTNAME}&myip={IP}` |
-
-   Replace `<func-app-url>` with your Function App base URL, e.g. `https://my-ddns.azurewebsites.net`.
-
-5. Save the entry.
-6. Repeat, adding a second entry for the **IPv6 entry** with the same Hostname, Username, and Password but with `{IP6}` instead of `{IP}` in the Server URL:
-
-   | Field | Value |
-   |---|---|
-   | **Hostname** | `home.example.com` |
-   | **Username** | `my-router` |
-   | **Password** | *same raw key* |
-   | **Server** | `<func-app-url>/api/nic/update?hostname={HOSTNAME}&myip={IP6}` |
-
-7. Save. Unifi will now call the endpoint on WAN IP changes, passing the current IPv4 or IPv6 address respectively.
-
-> **Credentials placement**: put credentials only in the **Username** and **Password** fields, not in the Server URL.
-> Unifi encodes them into the HTTP `Authorization: Basic` header automatically. Embedding them in the URL is unnecessary and may expose them in logs.
-
-### Template variable syntax by firmware version
-
-If the `{HOSTNAME}`/`{IP}`/`{IP6}` placeholders are not substituted by your firmware, use the older `%h`/`%i`/`%i6` variants:
-
-| Placeholder | Newer firmware | Older firmware |
-|---|---|---|
-| FQDN (hostname field value) | `{HOSTNAME}` | `%h` |
-| IPv4 address | `{IP}` | `%i` |
-| IPv6 address | `{IP6}` | `%i6` |
-
-Example Server URL with older syntax: `<func-app-url>/api/nic/update?hostname=%h&myip=%i`
-
-Check your firmware release notes or the Unifi community documentation to determine which syntax your version supports.
-
 ### Prerequisites in `dyndns.json`
 
 No separate configuration section is needed for the DynDNS endpoint. The same `config/dyndns.json` client entries
@@ -173,6 +123,13 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
   - `local.settings.json.example` - local app settings template
 - `tests/AzureDdns.FunctionApp.Tests` - xUnit tests
 - `scripts/smoke-test.ps1` - post-deployment smoke test for end-to-end DDNS validation
+- `unifi-client/` - Python DDNS client for Unifi gateways (see [`unifi-client/README.md`](unifi-client/README.md))
+  - `arkane-ddns-client.py` - main update script supporting IPv4 and IPv6
+  - `arkane-ddns-client.conf.example` - configuration template
+  - `arkane-ddns-client.service` - systemd service unit
+  - `arkane-ddns-client.timer` - systemd timer unit (runs every 5 minutes)
+  - `install.sh` - deployment helper script for Unifi gateways
+  - `README.md` - setup, configuration, and troubleshooting guide
 - `infra/main.bicep` - infrastructure definition
 - `infra/modules/dns-zone-rbac.bicep` - optional zone-scoped RBAC assignment module
 - `infra/main.parameters.json` - deploy-time parameter values
