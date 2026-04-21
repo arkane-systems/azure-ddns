@@ -85,9 +85,9 @@ public sealed class DyndnsUpdateFunction (
   ///   record to Azure DNS.
   /// </summary>
   /// <remarks>
-  ///   Execution order is: resolve hostname -> authenticate -> authorise -> resolve IP -> update DNS.
-  ///   This means an unknown or unmapped hostname can return <c>nohost</c> before credentials are
-  ///   validated, which matches the current implementation and DynDNS response mapping used here.
+  ///   Execution order is: authenticate -> resolve hostname -> authorise -> resolve IP -> update DNS.
+  ///   Authentication is intentionally performed before hostname resolution so unauthenticated callers
+  ///   receive <c>badauth</c> rather than learning whether a hostname is configured.
   ///   Responses use the DynDNS v2 response codes rather than the custom <c>OK:</c>/<c>ERROR:</c>
   ///   convention so that Unifi and other DynDNS-aware clients can interpret results correctly.
   /// </remarks>
@@ -105,21 +105,10 @@ public sealed class DyndnsUpdateFunction (
     if (!TryParseBasicAuth (request: request, clientName: out string? clientName, rawKey: out string? rawKey))
       return Badauth ();
 
-    // Step 2: Extract and validate the hostname (FQDN) parameter.
-    string? hostname = GetQueryValue (request: request, key: "hostname");
-
-    if (hostname is null)
-      return Nohost ();
-
-    // Step 3: Load configuration and resolve the FQDN to a configured zone + record name.
-    //         If no configured zone matches the hostname, the DynDNS "nohost" code is returned.
+    // Step 2: Load configuration.
     DyndnsConfig config = await this.configProvider.GetConfigAsync (cancellationToken);
-    FqdnResolution? resolution = this.fqdnResolver.Resolve (hostname: hostname, zones: config.Zones);
 
-    if (resolution is null)
-      return Nohost ();
-
-    // Step 4: Authenticate the caller.
+    // Step 3: Authenticate the caller.
     //         clientName and rawKey are guaranteed non-null here: TryParseBasicAuth only returns
     //         true when both values have been successfully parsed from the Authorization header.
     ClientConfig? authenticatedClient = this.authService.Authenticate (clientName: clientName!,
@@ -129,7 +118,20 @@ public sealed class DyndnsUpdateFunction (
     if (authenticatedClient is null)
       return Badauth ();
 
-    // Step 5: Authorise the client for the resolved zone/record pair.
+    // Step 4: Extract and validate the hostname (FQDN) parameter.
+    string? hostname = GetQueryValue (request: request, key: "hostname");
+
+    if (hostname is null)
+      return Nohost ();
+
+    // Step 5: Resolve the FQDN to a configured zone + record name.
+    //         If no configured zone matches the hostname, the DynDNS "nohost" code is returned.
+    FqdnResolution? resolution = this.fqdnResolver.Resolve (hostname: hostname, zones: config.Zones);
+
+    if (resolution is null)
+      return Nohost ();
+
+    // Step 6: Authorise the client for the resolved zone/record pair.
     //         "nohost" is returned for both missing and forbidden records; the DynDNS protocol
     //         has no distinct forbidden code, and we should not reveal whether the host exists.
     if (!this.authService.IsRecordAuthorized (client: authenticatedClient,
@@ -137,7 +139,7 @@ public sealed class DyndnsUpdateFunction (
                                               name: resolution.Name))
       return Nohost ();
 
-    // Step 6: Resolve the effective IP address.
+    // Step 7: Resolve the effective IP address.
     //         "myip" is the standard DynDNS v2 query parameter for the caller-supplied IP.
     //         When omitted, the source IP of the request is used as a fallback.
     string? explicitIp = GetQueryValue (request: request, key: "myip");
@@ -154,7 +156,7 @@ public sealed class DyndnsUpdateFunction (
       return ServerError ();
     }
 
-    // Step 7: Write the DNS record and return the appropriate DynDNS response code.
+    // Step 8: Write the DNS record and return the appropriate DynDNS response code.
     //         FqdnResolver normalizes zones by trimming whitespace and a trailing dot.
     //         Configuration keys may retain their original formatting, so avoid direct
     //         dictionary indexing here and perform a normalization-aware lookup instead.

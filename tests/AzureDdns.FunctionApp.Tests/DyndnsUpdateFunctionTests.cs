@@ -127,11 +127,25 @@ public sealed class DyndnsUpdateFunctionTests
   public async Task RunAsync_ReturnsBadauth_WhenCredentialsInvalid ()
   {
     var config = BuildConfig ();
-    // Supply a valid FQDN resolution so the flow reaches the authentication step.
     DyndnsUpdateFunction function = CreateFunction (config: config,
                                                     isAuthorized: false,
                                                     fqdnResolution: new FqdnResolution (Zone: "example.com", Name: "home"));
     HttpRequest request = CreateRequest (query: new Dictionary<string, string?> { ["hostname"] = "home.example.com", },
+                                         authHeader: MakeBasicAuth ("client", "wrong-key"));
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status401Unauthorized, actual: content.StatusCode);
+    Assert.Equal (expected: "badauth",                         actual: content.Content);
+  }
+
+  [Fact]
+  public async Task RunAsync_ReturnsBadauth_WhenCredentialsInvalid_AndHostnameUnknown ()
+  {
+    var config = BuildConfig ();
+    DyndnsUpdateFunction function = CreateFunction (config: config, isAuthorized: false, fqdnResolution: null);
+    HttpRequest request = CreateRequest (query: new Dictionary<string, string?> { ["hostname"] = "home.other.com", },
                                          authHeader: MakeBasicAuth ("client", "wrong-key"));
 
     IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);

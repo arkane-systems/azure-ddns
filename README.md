@@ -48,8 +48,8 @@ Two endpoint contracts are supported:
 1. Function receives `GET /api/nic/update` request.
 2. `Authorization: Basic` header is parsed for client name and raw key.
 3. `config/dyndns.json` is loaded.
-4. `hostname` FQDN is resolved to a configured zone and relative record name (longest-suffix match).
-5. Client is authenticated by comparing SHA-256 hash of provided key.
+4. Client is authenticated by comparing SHA-256 hash of provided key.
+5. `hostname` FQDN is resolved to a configured zone and relative record name (longest-suffix match).
 6. Requested record is authorized for that client.
 7. Effective IP is resolved:
    - `myip` query value if provided and valid
