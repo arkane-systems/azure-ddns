@@ -1,0 +1,63 @@
+# Continuous integration: build and test on every pull request.
+#
+# Deployment is deliberately NOT automated here; it stays a manual CLI process
+# (see README.md, "Manual deployment from a repository clone"). This workflow
+# only answers "does the proposed change build and pass its tests?".
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same PR supersedes any run still in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The function app targets .NET 8 (isolated worker).
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Target the test project rather than the .slnx solution file: .slnx needs a
+      # newer SDK than .NET 8. The test project references the function app, so this
+      # builds both.
+      - name: Restore
+        run: dotnet restore tests/AzureDdns.FunctionApp.Tests/AzureDdns.FunctionApp.Tests.csproj
+
+      - name: Build
+        run: dotnet build tests/AzureDdns.FunctionApp.Tests/AzureDdns.FunctionApp.Tests.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/AzureDdns.FunctionApp.Tests/AzureDdns.FunctionApp.Tests.csproj --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: ignore
+
+  # Validates that the infrastructure templates compile (syntax, types, module references).
+  # This does not deploy or contact Azure: `az bicep build` is a purely local compile.
+  # The Azure CLI and Bicep are available on GitHub-hosted Ubuntu runners; the Bicep CLI
+  # is fetched on first use.
+  bicep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Bicep templates
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null

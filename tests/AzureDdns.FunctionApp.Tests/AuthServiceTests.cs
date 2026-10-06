@@ -89,4 +89,22 @@ public sealed class AuthServiceTests
 
         Assert.False (result);
     }
+
+    [Theory]
+    [InlineData ("example.com.",  "example.com")]
+    [InlineData ("example.com",   "example.com.")]
+    [InlineData ("EXAMPLE.com",   "example.com")]
+    [InlineData (" example.com ", "example.com")]
+    public void IsRecordAuthorized_IgnoresZoneFormattingDifferences (string allowedZone, string requestedZone)
+    {
+        var client = new ClientConfig
+        {
+            Name = "home-router",
+            AllowedRecords = [new AllowedRecordConfig { Zone = allowedZone, Name = "home", },],
+        };
+
+        bool result = this._authService.IsRecordAuthorized (client: client, zone: requestedZone, name: "home");
+
+        Assert.True (result);
+    }
 }

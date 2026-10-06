@@ -82,7 +82,7 @@ Expected checks:
 2. valid IPv6 request updates only `AAAA`
 3. bad key returns `401`
 4. unauthorized record returns `403`
-5. unknown zone returns `400`
+5. authorized record in a zone missing from `dyndns.json` returns `400` (an unauthenticated or unauthorized caller gets `401`/`403` instead, whatever the zone)
 
 ## 7) Rotate a client key hash
 
@@ -94,6 +94,7 @@ Expected checks:
 ## 8) Common failures
 
 - `ERROR: invalid credentials` -> client key hash mismatch.
-- `ERROR: zone not configured` -> missing zone entry in `dyndns.json`.
+- `ERROR: zone not configured` -> missing zone entry in `dyndns.json` (only returned to an authenticated client authorized for that zone/record).
 - `ERROR: dns update failed` -> DNS RBAC/scope issue or DNS resource lookup issue.
 - `ERROR: server configuration invalid` -> missing `DNS_SUBSCRIPTION_ID` or `DNS_RESOURCE_GROUP`.
+- `503` (`ERROR: configuration unavailable` on `/api/update`; `911` on `/api/nic/update`) -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; the app log names the path and parse error.

@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
 #endregion
@@ -71,6 +72,7 @@ public sealed class DyndnsUpdateFunction (
   IFqdnResolver                 fqdnResolver,
   IIpResolver                   ipResolver,
   IDnsUpdateService             dnsUpdateService,
+  IOptions<RuntimeSettings>     runtimeSettings,
   ILogger<DyndnsUpdateFunction> logger)
 {
   private readonly IAuthService                  authService      = authService;
@@ -79,6 +81,7 @@ public sealed class DyndnsUpdateFunction (
   private readonly IFqdnResolver                 fqdnResolver     = fqdnResolver;
   private readonly IIpResolver                   ipResolver       = ipResolver;
   private readonly ILogger<DyndnsUpdateFunction> logger           = logger;
+  private readonly RuntimeSettings               runtimeSettings  = runtimeSettings.Value;
 
   /// <summary>
   ///   Processes a DynDNS v2 update request and writes the matching <c>A</c> or <c>AAAA</c>
@@ -106,7 +109,20 @@ public sealed class DyndnsUpdateFunction (
       return Badauth ();
 
     // Step 2: Load configuration.
-    DyndnsConfig config = await this.configProvider.GetConfigAsync (cancellationToken);
+    //         A missing or malformed configuration file is a server fault, reported as the DynDNS
+    //         server-error code "911" with HTTP 503 so clients and monitoring both see a retryable failure.
+    DyndnsConfig config;
+
+    try
+    {
+      config = await this.configProvider.GetConfigAsync (cancellationToken);
+    }
+    catch (ConfigurationUnavailableException exception)
+    {
+      this.logger.LogError (exception: exception, message: "DynDNS: configuration is unavailable.");
+
+      return ServiceUnavailable ();
+    }
 
     // Step 3: Authenticate the caller.
     //         clientName and rawKey are guaranteed non-null here: TryParseBasicAuth only returns
@@ -145,6 +161,12 @@ public sealed class DyndnsUpdateFunction (
     string? explicitIp = GetQueryValue (request: request, key: "myip");
     IpResolutionResult ipResolution = this.ipResolver.Resolve (request: request, explicitIp: explicitIp);
 
+    IpDiagnosticsLog.LogResolution (logger: this.logger,
+                                    target: hostname,
+                                    request: request,
+                                    resolution: ipResolution,
+                                    logAllHeaders: this.runtimeSettings.LogAllRequestHeadersForIpDiagnostics);
+
     if (ipResolution.EffectiveIp is null)
     {
       this.logger.LogWarning (message: "DynDNS: unable to resolve effective IP for {Hostname}; "                                        +
@@ -156,34 +178,16 @@ public sealed class DyndnsUpdateFunction (
       return ServerError ();
     }
 
+    IpDiagnosticsLog.LogExplicitIpMismatch (logger: this.logger,
+                                            client: authenticatedClient.Name,
+                                            target: hostname,
+                                            resolution: ipResolution);
+
     // Step 8: Write the DNS record and return the appropriate DynDNS response code.
     //         FqdnResolver normalizes zones by trimming whitespace and a trailing dot.
-    //         Configuration keys may retain their original formatting, so avoid direct
-    //         dictionary indexing here and perform a normalization-aware lookup instead.
-    static string NormalizeZoneKey (string zone)
-    {
-      return zone.Trim ().TrimEnd ('.');
-    }
-
-    ZoneConfig? zoneConfig = null;
-
-    if (!config.Zones.TryGetValue (resolution.Zone, out zoneConfig))
-    {
-      string normalizedResolvedZone = NormalizeZoneKey (resolution.Zone);
-
-      foreach ((string configuredZoneKey, ZoneConfig configuredZone) in config.Zones)
-      {
-        if (string.Equals (NormalizeZoneKey (configuredZoneKey),
-                           normalizedResolvedZone,
-                           StringComparison.OrdinalIgnoreCase))
-        {
-          zoneConfig = configuredZone;
-          break;
-        }
-      }
-    }
-
-    if (zoneConfig is null)
+    //         Configuration keys may retain their original formatting, so use the
+    //         normalization-aware lookup rather than direct dictionary indexing.
+    if (!config.TryGetZone (zone: resolution.Zone, zoneConfig: out ZoneConfig? zoneConfig) || zoneConfig is null)
     {
       this.logger.LogError (message: "DynDNS: resolved zone {Zone} did not match any configured zone key. " +
                                     "Check zone key normalization in configuration.",
@@ -307,6 +311,10 @@ public sealed class DyndnsUpdateFunction (
   ///   DynDNS v2 server-error response: <c>911</c> (HTTP 200).
   ///   Clients that respect the protocol should back off and retry after a delay.
   /// </summary>
+  private static ContentResult ServiceUnavailable ()
+    => new ()
+       { Content = "911", ContentType = "text/plain", StatusCode = StatusCodes.Status503ServiceUnavailable, };
+
   private static ContentResult ServerError ()
     => new () { Content = "911", ContentType = "text/plain", StatusCode = StatusCodes.Status200OK, };
 }

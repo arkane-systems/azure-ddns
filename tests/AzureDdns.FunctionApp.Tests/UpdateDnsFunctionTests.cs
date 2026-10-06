@@ -49,9 +49,10 @@ public sealed class UpdateDnsFunctionTests
 
   #region Nested type: StaticConfigProvider
 
-  private sealed class StaticConfigProvider (DyndnsConfig config) : IConfigProvider
+  private sealed class StaticConfigProvider (DyndnsConfig config, Exception? exception = null) : IConfigProvider
   {
-    public Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default) => Task.FromResult (config);
+    public Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default)
+      => exception is not null ? throw exception : Task.FromResult (config);
   }
 
   #endregion
@@ -120,6 +121,54 @@ public sealed class UpdateDnsFunctionTests
   }
 
   [Fact]
+  public async Task RunAsync_ReturnsUnauthorized_NotZoneError_WhenZoneUnconfiguredAndCredentialsInvalid ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (), isAuthorized: false);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "bad", ["zone"] = "unknown.example", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status401Unauthorized, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: invalid credentials",      actual: content.Content);
+  }
+
+  [Fact]
+  public async Task RunAsync_ReturnsForbidden_NotZoneError_WhenZoneUnconfiguredAndRecordUnauthorized ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (), isAuthorized: true, isRecordAuthorized: false);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "unknown.example", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status403Forbidden, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: unauthorized record",   actual: content.Content);
+  }
+
+  [Fact]
+  public async Task RunAsync_ReturnsBadRequest_WhenAuthorizedButZoneNotConfigured ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (), isAuthorized: true, isRecordAuthorized: true);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "unknown.example", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status400BadRequest, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: zone not configured",    actual: content.Content);
+  }
+
+  [Fact]
   public async Task RunAsync_ReturnsForbidden_WhenRecordUnauthorized ()
   {
     var config = new DyndnsConfig { Zones = { ["example.com"] = new ZoneConfig { Ttl = 300 }, }, };
@@ -156,6 +205,42 @@ public sealed class UpdateDnsFunctionTests
     var content = Assert.IsType<ContentResult> (result);
     Assert.Equal (expected: StatusCodes.Status200OK,                          actual: content.StatusCode);
     Assert.Equal (expected: "OK: updated A home.example.com to 203.0.113.10", actual: content.Content);
+  }
+
+  [Fact]
+  public async Task RunAsync_MatchesConfiguredZone_WhenConfigKeyHasTrailingDot ()
+  {
+    var config    = new DyndnsConfig { Zones = { ["example.com."] = new ZoneConfig { Ttl = 300 }, }, };
+    var dnsResult = new UpdateDnsResult (RecordType: "A", Fqdn: "home.example.com", IpAddress: "203.0.113.10");
+
+    UpdateDnsFunction function = CreateFunction (config: config, isAuthorized: true, dnsUpdateResult: dnsResult);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "example.com", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status200OK, actual: content.StatusCode);
+  }
+
+  [Fact]
+  public async Task RunAsync_ReturnsServiceUnavailable_WhenConfigurationUnavailable ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (),
+                                                 isAuthorized: true,
+                                                 configException: new ConfigurationUnavailableException ("missing"));
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "example.com", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status503ServiceUnavailable, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: configuration unavailable",      actual: content.Content);
   }
 
   [Fact]
@@ -205,9 +290,10 @@ public sealed class UpdateDnsFunctionTests
                                                    bool             isAuthorized,
                                                    bool             isRecordAuthorized = true,
                                                    UpdateDnsResult? dnsUpdateResult    = null,
-                                                   Exception?       dnsUpdateException = null)
+                                                   Exception?       dnsUpdateException = null,
+                                                   Exception?       configException    = null)
   {
-    IConfigProvider configProvider = new StaticConfigProvider (config);
+    IConfigProvider configProvider = new StaticConfigProvider (config: config, exception: configException);
     IAuthService    authService    = new StubAuthService (isAuthorized: isAuthorized, isRecordAuthorized: isRecordAuthorized);
     IIpResolver     ipResolver     = new IpResolver ();
     IDnsUpdateService dnsUpdateService = dnsUpdateResult is not null || dnsUpdateException is not null

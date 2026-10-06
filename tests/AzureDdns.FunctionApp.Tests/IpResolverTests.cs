@@ -36,12 +36,12 @@ public sealed class IpResolverTests
         Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.SourceIp);
         Assert.False (result.ExplicitIpMismatch);
         Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: result.Diagnostics.RemoteIp);
-        Assert.False (result.Diagnostics.TrustedProxyHop);
+        Assert.False (result.Diagnostics.KnownProxyHop);
         Assert.Null (result.Diagnostics.ForwardedForHeader);
     }
 
     [Fact]
-    public void Resolve_UsesForwardedClientIp_WhenTrustedProxyHopProvidesHeader ()
+    public void Resolve_UsesForwardedClientIp_WhenKnownProxyHopProvidesHeader ()
     {
         HttpRequest request = CreateRequest (remoteIp: "127.0.0.1", forwardedFor: "198.51.100.25, 10.0.0.5");
 
@@ -49,13 +49,13 @@ public sealed class IpResolverTests
 
         Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.EffectiveIp);
         Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
-        Assert.True (result.Diagnostics.TrustedProxyHop);
+        Assert.True (result.Diagnostics.KnownProxyHop);
         Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.Diagnostics.ForwardedForIp);
         Assert.Equal (expected: "198.51.100.25, 10.0.0.5", actual: result.Diagnostics.ForwardedForHeader);
     }
 
     [Fact]
-    public void Resolve_IgnoresForwardedClientIp_WhenImmediateHopIsNotTrusted ()
+    public void Resolve_IgnoresForwardedClientIp_WhenImmediateHopIsNotKnownProxy ()
     {
         HttpRequest request = CreateRequest (remoteIp: "203.0.113.10", forwardedFor: "198.51.100.25");
 
@@ -66,7 +66,7 @@ public sealed class IpResolverTests
     }
 
     [Fact]
-    public void Resolve_IgnoresInvalidForwardedClientIp_WhenTrustedProxyHopProvidesHeader ()
+    public void Resolve_IgnoresInvalidForwardedClientIp_WhenKnownProxyHopProvidesHeader ()
     {
         HttpRequest request = CreateRequest (remoteIp: "::1", forwardedFor: "bad-ip, also-bad");
 
@@ -110,7 +110,7 @@ public sealed class IpResolverTests
     }
 
     [Fact]
-    public void Resolve_UsesClientIpHeader_WhenTrustedProxyHopAndForwardedForMissing ()
+    public void Resolve_UsesClientIpHeader_WhenKnownProxyHopAndForwardedForMissing ()
     {
         HttpRequest request = CreateRequest (remoteIp: "::1");
         request.Headers["CLIENT-IP"] = "99.87.210.81:55096";

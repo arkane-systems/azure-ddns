@@ -39,7 +39,7 @@ Two endpoint contracts are supported:
 5. Requested record is authorized for that client.
 6. Effective IP is resolved:
    - `ip` query value if provided and valid
-   - otherwise source IP from connection
+   - otherwise the resolved source IP (see [Source IP resolution](#source-ip-resolution))
 7. DNS update is sent to Azure DNS using managed identity.
 8. Plain-text response is returned for DDNS client compatibility.
 
@@ -53,9 +53,41 @@ Two endpoint contracts are supported:
 6. Requested record is authorized for that client.
 7. Effective IP is resolved:
    - `myip` query value if provided and valid
-   - otherwise source IP from connection
+   - otherwise the resolved source IP (see [Source IP resolution](#source-ip-resolution))
 8. DNS update is sent to Azure DNS using managed identity.
 9. DynDNS v2 plain-text response is returned.
+
+## Source IP resolution
+
+Both endpoints share `Services/IpResolver.cs`. When the client supplies an explicit address (`ip` on `/api/update`,
+`myip` on `/api/nic/update`) that address is used. Otherwise the *source IP* is derived as follows.
+
+The app normally sits behind Azure's front end, so the TCP peer seen by the function is an infrastructure address,
+not the caller. The resolver therefore treats the peer as a **known proxy hop** when its address is loopback,
+RFC 1918 private (`10/8`, `172.16/12`, `192.168/16`), IPv4 link-local (`169.254/16`), or IPv6 link-local, site-local
+or unique-local (`fc00::/7`); IPv4-mapped IPv6 peers are unwrapped first.
+
+| Peer address | Source IP used |
+|---|---|
+| Not a known hop (public address) | The peer address itself; all forwarding headers are ignored, so a direct caller cannot spoof its address |
+| Known hop | First parseable entry of `X-Forwarded-For`, else the first parseable `CLIENT-IP` value, else the peer address |
+
+Notes:
+
+- Forwarding-header entries may be `ip`, `ip:port`, or `[ipv6]:port`; the port is stripped. Unparseable entries are skipped.
+- `Forwarded`, `X-Original-For` and `X-Real-IP` are captured for diagnostics only and never used to choose the IP.
+- An explicit address that is not a valid IP address is rejected (`/api/update`: `400`; `/api/nic/update`: `911`).
+  If the source IP cannot be determined and no explicit address was given, the request fails the same way.
+- If an explicit address differs from the resolved source IP, the update still proceeds (the client is authenticated
+  and authorized) but a warning is logged (both endpoints).
+- Both endpoints log the resolution diagnostics (peer, parsed address, raw forwarding headers) on every request,
+  and warns if the source IP resolves to loopback, which usually means header forwarding is misconfigured.
+  Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header on both endpoints
+  (any header whose name contains `auth`, `cookie`, `key`, `token`, `secret`, `password` or `credential` is redacted,
+  e.g. `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Functions-Key`, `X-Api-Key`). Request-derived values in these log
+  lines have control characters (including line breaks) replaced with `_`, so callers cannot forge log entries.
+  The query string is never logged (on `/api/update` it carries the raw key). This logging is implemented once, in
+  `Services/IpDiagnosticsLog.cs`, and shared by both functions.
 
 ## Response contract (`/api/update`)
 
@@ -66,7 +98,12 @@ Responses are plain text and stable for client compatibility:
 - Invalid credentials: HTTP `401`
 - Unauthorized record: HTTP `403`
 - Azure DNS backend failure: HTTP `502`
-- Server/configuration failure: HTTP `500`
+- Server/configuration failure (missing required app settings): HTTP `500`
+- Configuration file missing, unreadable or malformed: HTTP `503` with `ERROR: configuration unavailable`
+
+Checks run in this order: required parameters (`400`), credentials (`401`), record authorization (`403`), then
+that the zone is present in `config/dyndns.json` (`400 ERROR: zone not configured`). The zone check comes last so
+that unauthenticated or unauthorized callers cannot probe which zones are configured.
 
 ## Response contract (`/api/nic/update`)
 
@@ -77,7 +114,8 @@ Responses are plain text per DynDNS v2 specification:
 | `good <ip>` | 200 | Update succeeded |
 | `badauth` | 401 | Credentials missing or invalid |
 | `nohost` | 200 | FQDN not resolvable to a configured zone/record, or record not authorized |
-| `911` | 200 | Server-side error (configuration or DNS update failure) |
+| `911` | 200 | Server-side error (app-setting misconfiguration, unresolvable IP, or DNS update failure) |
+| `911` | 503 | Configuration file (`config/dyndns.json`) missing, unreadable or malformed |
 
 > **Note**: `nohost` is returned for both missing and unauthorized records to avoid leaking information about configured zones.
 
@@ -148,7 +186,7 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
 | `AZURE_FUNCTIONS_ENVIRONMENT` | Recommended | Environment label (`Development`, `Production`, etc.) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Recommended | Application Insights connection |
 | `AzureWebJobsStorage` | Required in Azure | Functions host storage connection |
-| `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Yes | Enables/disables IP header logging' default is `false`. |
+| `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Optional | Logs all request headers (sensitive ones redacted) on both endpoints for IP diagnostics; default is `false`. See [Source IP resolution](#source-ip-resolution). |
 
 ### DDNS config file (`config/dyndns.json`)
 
@@ -183,7 +221,8 @@ Security notes:
 
 ## Manual deployment from a repository clone
 
-Use these steps when deploying without GitHub Actions.
+Use these steps to deploy. Deployment is intentionally manual: the repository's only GitHub Actions workflow
+(`.github/workflows/ci.yml`) builds and tests pull requests, checks that the Bicep templates compile, and does not deploy.
 
 ### Prerequisites
 
