@@ -40,6 +40,11 @@ param functionPlanName string = ''
 @description('Optional DNS zone names to grant DNS Zone Contributor at zone scope in the shared DNS resource group.')
 param dnsZoneNames array = []
 
+// Whether the documentation address ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32, 3fff::/20)
+// may be published. They are harmless (never routable) and the smoke test uses them, so they are allowed by default.
+@description('Allow publishing documentation-range addresses (RFC 5737/3849/9637). Set false to refuse them; the smoke test then needs -TestIpv4/-TestIpv6.')
+param allowDocumentationAddresses bool = true
+
 // Normalize tokens for Azure resource naming constraints.
 var baseToken = toLower(replace(replace(baseName, '-', ''), '_', ''))
 var envToken = toLower(replace(replace(environmentName, '-', ''), '_', ''))
@@ -186,6 +191,10 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         {
           name: 'LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS'
           value: 'false'
+        }
+        {
+          name: 'ALLOW_DOCUMENTATION_ADDRESSES'
+          value: string(allowDocumentationAddresses)
         }
         {
           name: 'AzureWebJobsStorage'

@@ -88,6 +88,39 @@ public sealed class AddressPolicyTests
   public void RejectionReason_RejectsNonGlobalUnicastIpv6 (string text)
     => Assert.NotNull (AddressPolicy.RejectionReason (IPAddress.Parse (text)));
 
+  [Theory]
+  [InlineData ("192.0.2.1")]
+  [InlineData ("198.51.100.200")]
+  [InlineData ("203.0.113.5")]
+  [InlineData ("2001:db8::1")]
+  [InlineData ("2001:db8:ffff:ffff::1")]
+  [InlineData ("3fff::1")]
+  [InlineData ("3fff:0fff:ffff::1")]
+  public void RejectionReason_RejectsDocumentationRanges_WhenDisallowed (string text)
+  {
+    string? reason = AddressPolicy.RejectionReason (address: IPAddress.Parse (text), allowDocumentation: false);
+
+    Assert.NotNull (reason);
+    Assert.Contains (expectedSubstring: "documentation", actualString: reason);
+  }
+
+  [Theory]
+  [InlineData ("192.0.3.1")]       // next /24 after 192.0.2.0/24
+  [InlineData ("198.51.101.1")]
+  [InlineData ("203.0.114.1")]
+  [InlineData ("2001:db9::1")]     // next /32 after 2001:db8::/32
+  [InlineData ("3fff:1000::1")]    // first address past 3fff::/20
+  [InlineData ("8.8.8.8")]
+  [InlineData ("2a02:1234:5678::5")]
+  public void RejectionReason_StillAllowsNeighbouringPublicAddresses_WhenDocumentationDisallowed (string text)
+    => Assert.Null (AddressPolicy.RejectionReason (address: IPAddress.Parse (text), allowDocumentation: false));
+
+  [Theory]
+  [InlineData ("10.0.0.1")]
+  [InlineData ("fd12:3456:789a::1")]
+  public void RejectionReason_StillRejectsOtherRanges_WhenDocumentationDisallowed (string text)
+    => Assert.NotNull (AddressPolicy.RejectionReason (address: IPAddress.Parse (text), allowDocumentation: false));
+
   [Fact]
   public void RejectionReason_ExplainsTheRejection ()
     => Assert.Contains (expectedSubstring: "10.0.0.0/8", actualString: AddressPolicy.RejectionReason (IPAddress.Parse ("10.1.2.3")));

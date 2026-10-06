@@ -81,8 +81,10 @@ Notes:
   unique-local, link-local, loopback and multicast. This stops, for example, a router reporting its LAN address, or the
   app seeing only an internal proxy hop because no forwarding header arrived, from silently publishing a broken
   record. The documentation ranges (`192.0.2/24`, `198.51.100/24`, `203.0.113/24`, `2001:db8::/32`, `3fff::/20`) are
-  deliberately allowed because they can never misdirect traffic and the smoke test publishes addresses from them.
-  The policy lives in `Services/AddressPolicy.cs`.
+  allowed by default because they can never misdirect traffic and the smoke test publishes addresses from them; set
+  `ALLOW_DOCUMENTATION_ADDRESSES=false` (Bicep parameter `allowDocumentationAddresses`) to refuse them as well, in which
+  case run the smoke test with `-TestIpv4` / `-TestIpv6` (real, publicly routable addresses). The policy lives in
+  `Services/AddressPolicy.cs`.
 - An explicit address that is not a valid IP address is rejected (`911`). If the source IP cannot be determined and
   no explicit address was given, the request fails the same way.
 - If an explicit address differs from the resolved source IP, the update still proceeds (the client is authenticated
@@ -182,6 +184,7 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Recommended | Application Insights connection |
 | `AzureWebJobsStorage` | Required in Azure | Functions host storage connection |
 | `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Optional | Logs all request headers (sensitive ones redacted) on both endpoints for IP diagnostics; default is `false`. See [Source IP resolution](#source-ip-resolution). |
+| `ALLOW_DOCUMENTATION_ADDRESSES` | Optional | `true` (default) allows publishing documentation-range addresses (RFC 5737/3849/9637), which the smoke test uses; `false` refuses them like other unroutable addresses. See [Source IP resolution](#source-ip-resolution). |
 
 ### DDNS config file (`config/dyndns.json`)
 
@@ -361,6 +364,7 @@ Parameters:
 - `-Name` - relative record name to test (`@` for zone apex)
 - `-DnsTimeoutSeconds` - optional DNS propagation wait timeout; default `120`
 - `-DnsPollIntervalSeconds` - optional poll interval between authoritative DNS checks; default `5`
+- `-TestIpv4` / `-TestIpv6` - optional addresses to publish instead of random documentation-range ones; required when the deployment sets `ALLOW_DOCUMENTATION_ADDRESSES=false`
 
 Example:
 

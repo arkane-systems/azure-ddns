@@ -19,7 +19,16 @@ param(
   [int]$DnsTimeoutSeconds = 120,
 
   [Parameter()]
-  [int]$DnsPollIntervalSeconds = 5
+  [int]$DnsPollIntervalSeconds = 5,
+
+  # By default the test publishes random documentation-range addresses (RFC 5737 / RFC 3849), which can never point
+  # at a real host. If the deployment sets ALLOW_DOCUMENTATION_ADDRESSES=false, supply addresses it will accept
+  # (publicly routable ones); the test will point the record at them, so use addresses you control or do not mind.
+  [Parameter()]
+  [string]$TestIpv4,
+
+  [Parameter()]
+  [string]$TestIpv6
 )
 
 Set-StrictMode -Version Latest
@@ -313,8 +322,26 @@ function Wait-ForDnsValue
 
 $endpointUrl = Get-DyndnsEndpointUrl -BaseUrl $FunctionBaseUrl
 $fqdn = Get-TestFqdn -RecordName $Name -DnsZone $Zone
-$ipv4 = ConvertTo-CanonicalIpAddressString -IpAddress (New-Rfc5737Ipv4)
-$ipv6 = ConvertTo-CanonicalIpAddressString -IpAddress (New-Rfc3849Ipv6)
+if (-not [string]::IsNullOrWhiteSpace($TestIpv4))
+{
+  $parsed = $null
+  if (-not [System.Net.IPAddress]::TryParse($TestIpv4, [ref]$parsed) -or $parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork)
+  {
+    throw "TestIpv4 '$TestIpv4' is not a valid IPv4 address."
+  }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($TestIpv6))
+{
+  $parsed = $null
+  if (-not [System.Net.IPAddress]::TryParse($TestIpv6, [ref]$parsed) -or $parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetworkV6)
+  {
+    throw "TestIpv6 '$TestIpv6' is not a valid IPv6 address."
+  }
+}
+
+$ipv4 = ConvertTo-CanonicalIpAddressString -IpAddress $(if ([string]::IsNullOrWhiteSpace($TestIpv4)) { New-Rfc5737Ipv4 } else { $TestIpv4 })
+$ipv6 = ConvertTo-CanonicalIpAddressString -IpAddress $(if ([string]::IsNullOrWhiteSpace($TestIpv6)) { New-Rfc3849Ipv6 } else { $TestIpv6 })
 $authoritativeServer = Get-AuthoritativeNameServer -DnsZone $Zone
 
 Write-Host "DynDNS Smoke test target : $fqdn"

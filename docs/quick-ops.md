@@ -59,6 +59,7 @@ Confirm these are present on the Function App:
 - `AzureWebJobsStorage`
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
 - `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
+- `ALLOW_DOCUMENTATION_ADDRESSES` (expected `true` unless you deliberately refuse documentation ranges)
 
 ## 5) Verify identity and RBAC
 

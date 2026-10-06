@@ -205,7 +205,8 @@ public sealed class DdnsUpdateCoordinator (
 
     // Refuse to publish an address that cannot work in public DNS. This catches both a client reporting a LAN
     // address and the fallback case where only an internal proxy hop was visible as the source.
-    string? rejection = AddressPolicy.RejectionReason (ipResolution.EffectiveIp);
+    string? rejection = AddressPolicy.RejectionReason (address: ipResolution.EffectiveIp,
+                                                       allowDocumentation: this.runtimeSettings.AllowDocumentationAddresses);
 
     if (rejection is not null)
     {

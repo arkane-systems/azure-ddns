@@ -100,13 +100,14 @@ public sealed class DdnsUpdateCoordinatorTests
   private static DdnsUpdateCoordinator CreateCoordinator (RecordingDnsUpdateService dns,
                                                           bool                      authenticates   = true,
                                                           bool                      authorizes      = true,
-                                                          Exception?                configException = null)
+                                                          Exception?                configException = null,
+                                                          bool                      allowDocumentationAddresses = true)
     => new (configProvider: new StubConfigProvider (configException),
             authService: new StubAuthService (authenticates: authenticates, authorizes: authorizes),
             fqdnResolver: new FqdnResolver (),
             ipResolver: new IpResolver (),
             dnsUpdateService: dns,
-            runtimeSettings: Options.Create (new RuntimeSettings ()),
+            runtimeSettings: Options.Create (new RuntimeSettings { AllowDocumentationAddresses = allowDocumentationAddresses, }),
             logger: NullLogger<DdnsUpdateCoordinator>.Instance);
 
   private static DdnsUpdateRequest CreateRequest (string? hostname   = Hostname,
@@ -225,6 +226,33 @@ public sealed class DdnsUpdateCoordinatorTests
 
     Assert.Equal (expected: DdnsUpdateStatus.AddressNotPubliclyRoutable, actual: result.Status);
     Assert.Null (dns.WrittenAddress);
+  }
+
+  [Theory]
+  [InlineData ("203.0.113.10")]
+  [InlineData ("192.0.2.7")]
+  [InlineData ("2001:db8::1")]
+  public async Task UpdateAsync_RefusesDocumentationAddresses_WhenTheSettingDisallowsThem (string explicitIp)
+  {
+    var dns = new RecordingDnsUpdateService ();
+
+    DdnsUpdateResult result = await CreateCoordinator (dns: dns, allowDocumentationAddresses: false)
+                                .UpdateAsync (CreateRequest (explicitIp: explicitIp));
+
+    Assert.Equal (expected: DdnsUpdateStatus.AddressNotPubliclyRoutable, actual: result.Status);
+    Assert.Null (dns.WrittenAddress);
+  }
+
+  [Fact]
+  public async Task UpdateAsync_StillPublishesRealAddresses_WhenDocumentationDisallowed ()
+  {
+    var dns = new RecordingDnsUpdateService ();
+
+    DdnsUpdateResult result = await CreateCoordinator (dns: dns, allowDocumentationAddresses: false)
+                                .UpdateAsync (CreateRequest (explicitIp: "8.8.8.8"));
+
+    Assert.True (result.IsSuccess);
+    Assert.Equal (expected: IPAddress.Parse ("8.8.8.8"), actual: dns.WrittenAddress);
   }
 
   [Fact]

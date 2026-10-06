@@ -81,6 +81,7 @@ These are set in `siteConfig.appSettings` during deployment:
 - `CONFIG_PATH` (`config/dyndns.json`)
 - `AzureWebJobsStorage`
 - `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
+- `ALLOW_DOCUMENTATION_ADDRESSES` (expected `true` unless you deliberately refuse documentation ranges)
 
 No manual portal configuration is required for these values in normal deployments.
 
