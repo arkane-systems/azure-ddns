@@ -4,7 +4,7 @@
 arkane-ddns-client: DDNS client for Unifi gateways with IPv4/IPv6 support.
 
 Discovers public IPv4 and IPv6 addresses from a WAN interface, detects changes,
-and calls the Azure DDNS API endpoint to update records.
+and calls the Azure DDNS API (DynDNS v2 endpoint, HTTP Basic auth) to update records.
 """
 
 import os
@@ -14,12 +14,14 @@ import json
 import re
 import socket
 import syslog
+import urllib
 from ConfigParser import SafeConfigParser
 
 CACHE_DIR = '/var/cache/arkane-ddns-client'
 CACHE_FILE = os.path.join(CACHE_DIR, 'cache.json')
 DEFAULT_INTERFACE = 'eth1'
-API_ENDPOINT_TEMPLATE = '{endpoint}/api/update'
+API_PATH = '/api/nic/update'
+CURL_TIMEOUT_SECONDS = '30'
 
 
 def log(level, message):
@@ -118,41 +120,59 @@ def get_interface_addresses(interface):
     return ipv4, ipv6
 
 
+def build_hostname(zone, record):
+    """Return the fully-qualified hostname for a zone and record ('@' means the zone apex)."""
+    if record in ('', '@'):
+        return zone
+    return '{}.{}'.format(record, zone)
+
+
+def curl_quote(value):
+    """Quote a value for a curl config file (backslash and double quote are escaped)."""
+    return '"{}"'.format(value.replace('\\', '\\\\').replace('"', '\\"'))
+
+
 def call_api(api_base_url, client, key, zone, record, ip_address, ip_version):
-    """Call the DDNS API with an IP update using curl."""
-    # Construct full API endpoint URL with path
-    endpoint = api_base_url.rstrip('/') + '/api/update'
-    
-    url = '{endpoint}?client={client}&key={key}&zone={zone}&name={record}&ip={ip}'.format(
-        endpoint=endpoint,
-        client=client,
-        key=key,
-        zone=zone,
-        record=record,
-        ip=ip_address
-    )
-    
-    debug('Calling API: {} (hiding key in logs)'.format(url.replace(key, '***')))
-    
+    """Call the DDNS API (DynDNS v2 protocol) with an IP update using curl.
+
+    The key is sent as the HTTP Basic auth password, and curl reads its settings from stdin
+    (-K -), so the key never appears in the process list or in any URL.
+    """
+    hostname = build_hostname(zone, record)
+    url = '{endpoint}{path}?hostname={hostname}&myip={ip}'.format(
+        endpoint=api_base_url.rstrip('/'),
+        path=API_PATH,
+        hostname=urllib.quote(hostname, safe=''),
+        ip=urllib.quote(ip_address, safe=''))
+
+    debug('Calling API: {} (as client {})'.format(url, client))
+
+    curl_config = 'url = {}\nuser = {}\n'.format(
+        curl_quote(url), curl_quote('{}:{}'.format(client, key)))
+
     try:
-        response = subprocess.check_output(['curl', '-s', url], stderr=subprocess.STDOUT)
-        debug('API response: {}'.format(response))
-        
-        # Check for "OK:" in response (success) or "ERROR:" (failure)
-        if 'OK:' in response:
-            log('info', 'Successfully updated {} record {} to {}'.format(
-                ip_version, record, ip_address))
-            return True
-        else:
-            log('error', 'API returned error for {} update of {}: {}'.format(
-                ip_version, record, response))
-            return False
-    except subprocess.CalledProcessError as e:
-        log('error', 'API call failed: {}'.format(e.output))
-        return False
+        process = subprocess.Popen(
+            ['curl', '-s', '--proto', '=https', '--connect-timeout', '10',
+             '--max-time', CURL_TIMEOUT_SECONDS, '-K', '-'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        response, _ = process.communicate(curl_config)
     except OSError as e:
         log('error', 'Command "curl" not found or failed: {}'.format(e))
         return False
+
+    response = response.strip()
+    debug('API response: {}'.format(response))
+
+    # DynDNS v2: "good <ip>" (changed) or "nochg <ip>" (unchanged) mean success; anything else is a failure
+    # (badauth, nohost, 911, or a curl error message).
+    if process.returncode == 0 and (response.startswith('good') or response.startswith('nochg')):
+        log('info', 'Successfully updated {} record {} to {}'.format(
+            ip_version, hostname, ip_address))
+        return True
+
+    log('error', 'API returned error for {} update of {} (curl exit {}): {}'.format(
+        ip_version, hostname, process.returncode, response))
+    return False
 
 
 def main():

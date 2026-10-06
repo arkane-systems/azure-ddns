@@ -8,7 +8,7 @@ The client:
 1. **Discovers public IPs** by parsing the WAN interface (e.g., `eth1`) for global unicast IPv4 and IPv6 addresses
 2. **Caches the last known IPs** in `/var/cache/arkane-ddns-client/cache.json`
 3. **Detects changes** by comparing current addresses to cached values
-4. **Updates DNS** by calling the Azure DDNS API (`/api/update` endpoint) when addresses change
+4. **Updates DNS** by calling the Azure DDNS API (DynDNS v2 `/api/nic/update` endpoint, HTTP Basic auth) when addresses change
 5. **Runs on schedule** via a systemd timer (every 5 minutes by default)
 6. **Logs minimally** to the system journal for troubleshooting
 
@@ -210,7 +210,7 @@ sudo bash /root/arkane-ddns-client-staging/install.sh /path/to/files
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `endpoint` | Yes | Base URL of Azure DDNS function app (e.g., `https://my-func.azurewebsites.net`). Path `/api/update` is appended by the client. |
+| `endpoint` | Yes | Base URL of Azure DDNS function app (e.g., `https://my-func.azurewebsites.net`). Must be `https://`. Path `/api/nic/update` is appended by the client. |
 | `client` | Yes | Client name configured in the function app's `config/dyndns.json`. |
 | `key` | Yes | Raw (unhashed) client key. Must match the configured client's key. **Keep this secure!** |
 | `zone` | Yes | DNS zone name (e.g., `example.com`). |
@@ -250,13 +250,20 @@ The script caches the last-known IPv4 and IPv6 addresses in `/var/cache/arkane-d
 
 ### API Calls
 
-When an address changes, the script calls the Azure DDNS `/api/update` endpoint with query parameters:
+When an address changes, the script calls the Azure DDNS DynDNS v2 endpoint using HTTP Basic authentication
+(client name as user name, raw key as password):
 
 ```
-GET https://<endpoint>/api/update?client=<name>&key=<key>&zone=<zone>&name=<record>&ip=<ip>
+GET https://<endpoint>/api/nic/update?hostname=<record>.<zone>&myip=<ip>
+Authorization: Basic base64(<name>:<key>)
 ```
 
-The API response is checked for `OK:` (success) or `ERROR:` (failure). Only successful updates modify the cache.
+The key is never placed in the URL or on the `curl` command line (so it does not appear in the process list):
+`curl` reads its URL and credentials from standard input. The call uses `--proto =https` (plain HTTP is refused) and
+has connect and overall timeouts.
+
+The API response is checked for `good <ip>` or `nochg <ip>` (success); anything else (`badauth`, `nohost`, `911`, or a
+`curl` error) is a failure. Only successful updates modify the cache.
 
 ### Logging
 
@@ -367,14 +374,15 @@ sudo rm /var/cache/arkane-ddns-client/cache.json
 If you want to test the API endpoint directly without the client:
 
 ```bash
-# IPv4 update
-curl "https://your-func.azurewebsites.net/api/update?client=my-client&key=my-key&zone=example.com&name=home&ip=203.0.113.42"
+# IPv4 update (curl prompts for nothing; -u sends HTTP Basic auth. Note: the key is visible in your shell history
+# and process list while this runs, so use a throwaway key or a trusted workstation.)
+curl -u my-client:my-key "https://your-func.azurewebsites.net/api/nic/update?hostname=home.example.com&myip=203.0.113.42"
 
 # IPv6 update
-curl "https://your-func.azurewebsites.net/api/update?client=my-client&key=my-key&zone=example.com&name=home&ip=2001:db8::1"
+curl -u my-client:my-key "https://your-func.azurewebsites.net/api/nic/update?hostname=home.example.com&myip=2001:db8::1"
 
-# Expected success response: "OK: ..."
-# Expected auth failure: "ERROR: ..."
+# Expected success response: "good <ip>"
+# Expected auth failure: "badauth" (HTTP 401); unknown or unauthorized host: "nohost"
 ```
 
 ## Performance & Resource Usage
