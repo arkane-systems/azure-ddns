@@ -83,7 +83,9 @@ Notes:
 - Both endpoints log the resolution diagnostics (peer, parsed address, raw forwarding headers) on every request,
   and warns if the source IP resolves to loopback, which usually means header forwarding is misconfigured.
   Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header on both endpoints
-  (`Authorization`, `Cookie`, `Set-Cookie`, `X-Functions-Key` and `x-ms-token-aad-access-token` are redacted).
+  (any header whose name contains `auth`, `cookie`, `key`, `token`, `secret`, `password` or `credential` is redacted,
+  e.g. `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Functions-Key`, `X-Api-Key`). Request-derived values in these log
+  lines have control characters (including line breaks) replaced with `_`, so callers cannot forge log entries.
   The query string is never logged (on `/api/update` it carries the raw key). This logging is implemented once, in
   `Services/IpDiagnosticsLog.cs`, and shared by both functions.
 

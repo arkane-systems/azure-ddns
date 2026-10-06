@@ -65,6 +65,8 @@ public sealed class IpDiagnosticsLogTests
     context.Connection.RemoteIpAddress = IPAddress.Parse (remoteIp);
     context.Request.Headers["Authorization"] = "Basic c2VjcmV0OnNlY3JldA==";
     context.Request.Headers["User-Agent"]    = "test-agent";
+    context.Request.Headers["Proxy-Authorization"] = "Basic cHJveHk6cHJveHk=";
+    context.Request.Headers["X-Api-Key"]           = "api-key-value";
 
     return context.Request;
   }
@@ -94,7 +96,39 @@ public sealed class IpDiagnosticsLogTests
     string headerEntry = Assert.Single (collection: logger.Entries, predicate: entry => entry.Message.StartsWith ("Full request header diagnostics")).Message;
     Assert.Contains (expectedSubstring: "User-Agent:test-agent",   actualString: headerEntry);
     Assert.Contains (expectedSubstring: "Authorization:<redacted>", actualString: headerEntry);
-    Assert.DoesNotContain (expectedSubstring: "c2VjcmV0", actualString: headerEntry);
+    Assert.Contains (expectedSubstring: "Proxy-Authorization:<redacted>", actualString: headerEntry);
+    Assert.Contains (expectedSubstring: "X-Api-Key:<redacted>",           actualString: headerEntry);
+    Assert.DoesNotContain (expectedSubstring: "c2VjcmV0",       actualString: headerEntry);
+    Assert.DoesNotContain (expectedSubstring: "cHJveHk6",       actualString: headerEntry);
+    Assert.DoesNotContain (expectedSubstring: "api-key-value",  actualString: headerEntry);
+  }
+
+  [Theory]
+  [InlineData ("a\r\nFORGED", "a__FORGED")]
+  [InlineData ("tab\there",   "tab_here")]
+  [InlineData ("clean.example.com", "clean.example.com")]
+  public void Sanitize_ReplacesControlCharacters (string input, string expected)
+    => Assert.Equal (expected: expected, actual: IpDiagnosticsLog.Sanitize (input));
+
+  [Fact]
+  public void Sanitize_ReturnsNull_ForNull () => Assert.Null (IpDiagnosticsLog.Sanitize (null));
+
+  [Fact]
+  public void LogResolution_DoesNotLetForwardedHeaderForgeLogLines ()
+  {
+    var         logger  = new CapturingLogger ();
+    HttpRequest request = CreateRequest ("10.0.0.5");
+    request.Headers["X-Forwarded-For"] = "203.0.113.9\r\nWarning: forged entry";
+    IpResolutionResult resolution = new IpResolver ().Resolve (request: request, explicitIp: null);
+
+    IpDiagnosticsLog.LogResolution (logger: logger, target: "bad\nhost", request: request, resolution: resolution, logAllHeaders: true);
+
+    Assert.All (collection: logger.Entries,
+                action: entry =>
+                        {
+                          Assert.DoesNotContain (expectedSubstring: "\r", actualString: entry.Message);
+                          Assert.DoesNotContain (expectedSubstring: "\n", actualString: entry.Message);
+                        });
   }
 
   [Fact]
