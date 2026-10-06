@@ -63,3 +63,20 @@ jobs:
 
       - name: Build Bicep templates
         run: az bicep build --file infra/main.bicep --stdout > /dev/null
+
+  # Runs the Unifi gateway client end to end under the software the gateways ship: CPython 2.7.18 and
+  # curl 7.74.0 (Debian bullseye), against a local HTTPS server that plays the DDNS API. See the header of
+  # scripts/test-unifi-client.sh. The container installs its packages from Debian's pinned snapshot archive
+  # because bullseye is end-of-life.
+  unifi-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test Unifi client (Python 2.7.18, curl 7.74.0)
+        run: |
+          docker run --rm \
+            -v "$PWD/unifi-client:/client:ro" \
+            -v "$PWD/scripts:/scr:ro" \
+            debian:bullseye-slim sh /scr/test-unifi-client.sh
