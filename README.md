@@ -76,6 +76,11 @@ Notes:
   not a valid address stops the walk instead of trusting anything left of it, falling back to `CLIENT-IP` and then the
   peer. Several `X-Forwarded-For` header lines are treated as one chain, in order. If `X-Forwarded-For` and `CLIENT-IP`
   name different clients, a warning is logged (that would mean one of them is not being set by the platform).
+- What the platform actually sends (observed on Azure Functions Flex Consumption): the peer is `127.0.0.1`,
+  `X-Forwarded-For` and `Forwarded` are absent, and `CLIENT-IP` holds the caller's address as `ip:port`. Caller-supplied
+  `CLIENT-IP`, `X-Forwarded-For` and `X-Original-For` headers are overwritten or stripped before they reach the app (a
+  forged-header test returned the real address), so the `CLIENT-IP` fallback is trustworthy there. The `X-Forwarded-For`
+  handling above is defence in depth for other hosting plans.
 - Forwarding-header entries may be `ip`, `ip:port`, or `[ipv6]:port`; the port is stripped. Unparseable entries are skipped.
 - `Forwarded`, `X-Original-For` and `X-Real-IP` are captured for diagnostics only and never used to choose the IP.
 - IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) are converted to the IPv4 address they represent, both for `myip`
