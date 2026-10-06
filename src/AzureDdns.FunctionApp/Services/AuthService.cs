@@ -85,9 +85,13 @@ public sealed class AuthService : IAuthService
         if (string.IsNullOrWhiteSpace (zone) || string.IsNullOrWhiteSpace (name))
             return false;
 
+        // Zones are compared in normalized form (see DyndnsConfig.NormalizeZoneName) so that
+        // formatting differences such as a trailing dot do not cause spurious denials.
+        string normalizedZone = DyndnsConfig.NormalizeZoneName (zone);
+
         return client.AllowedRecords.Any (record =>
-                                              string.Equals (a: record.Zone,
-                                                             b: zone,
+                                              string.Equals (a: DyndnsConfig.NormalizeZoneName (record.Zone),
+                                                             b: normalizedZone,
                                                              comparisonType: StringComparison.OrdinalIgnoreCase) &&
                                               (string.Equals (a: record.Name,
                                                               b: name,

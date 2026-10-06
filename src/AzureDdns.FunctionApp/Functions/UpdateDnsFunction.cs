@@ -107,9 +107,7 @@ public sealed class UpdateDnsFunction (
 
     // Only an authenticated client authorized for this zone/record reaches this check, so a
     // distinct error is safe here (the client already knows its own allowed zones).
-    ZoneConfig? zoneConfig = config.Zones.GetValueOrDefault (zone);
-
-    if (zoneConfig is null)
+    if (!config.TryGetZone (zone: zone, zoneConfig: out ZoneConfig? zoneConfig) || zoneConfig is null)
       return Error (statusCode: StatusCodes.Status400BadRequest, message: "zone not configured");
 
     IpResolutionResult resolution = this.ipResolver.Resolve (request: request, explicitIp: explicitIp);

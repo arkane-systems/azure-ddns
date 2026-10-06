@@ -207,6 +207,24 @@ public sealed class UpdateDnsFunctionTests
   }
 
   [Fact]
+  public async Task RunAsync_MatchesConfiguredZone_WhenConfigKeyHasTrailingDot ()
+  {
+    var config    = new DyndnsConfig { Zones = { ["example.com."] = new ZoneConfig { Ttl = 300 }, }, };
+    var dnsResult = new UpdateDnsResult (RecordType: "A", Fqdn: "home.example.com", IpAddress: "203.0.113.10");
+
+    UpdateDnsFunction function = CreateFunction (config: config, isAuthorized: true, dnsUpdateResult: dnsResult);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "example.com", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status200OK, actual: content.StatusCode);
+  }
+
+  [Fact]
   public async Task RunAsync_ReturnsBadGateway_WhenRequestFailedException ()
   {
     var config         = new DyndnsConfig { Zones = { ["example.com"] = new ZoneConfig { Ttl = 300 }, }, };

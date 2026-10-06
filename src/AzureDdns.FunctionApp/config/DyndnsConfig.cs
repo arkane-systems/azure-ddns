@@ -27,6 +27,43 @@ public sealed class DyndnsConfig
     ///   Clients that are allowed to authenticate against the DDNS endpoint.
     /// </summary>
     public List<ClientConfig> Clients { get; init; } = [];
+
+    /// <summary>
+    ///   Finds the configuration for a zone, tolerating formatting differences between the
+    ///   requested zone and the configured key: both sides are compared case-insensitively
+    ///   after trimming whitespace and a trailing dot (so <c>example.com.</c> matches a
+    ///   configured <c>example.com</c> and vice versa). Both endpoints use this lookup.
+    /// </summary>
+    /// <param name="zone">The zone name to look up.</param>
+    /// <param name="zoneConfig">The matching zone configuration, if any.</param>
+    /// <returns><see langword="true" /> if a configured zone matches.</returns>
+    public bool TryGetZone (string zone, out ZoneConfig? zoneConfig)
+    {
+        if (this.Zones.TryGetValue (key: zone, value: out zoneConfig))
+            return true;
+
+        string normalized = NormalizeZoneName (zone);
+
+        foreach ((string configuredKey, ZoneConfig configuredZone) in this.Zones)
+        {
+            if (!string.Equals (a: NormalizeZoneName (configuredKey),
+                                b: normalized,
+                                comparisonType: StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            zoneConfig = configuredZone;
+            return true;
+        }
+
+        zoneConfig = null;
+        return false;
+    }
+
+    /// <summary>
+    ///   Canonical form used whenever zone names are compared: surrounding whitespace and a
+    ///   trailing dot removed. Comparisons should additionally be case-insensitive.
+    /// </summary>
+    public static string NormalizeZoneName (string zone) => zone.Trim ().TrimEnd ('.');
 }
 
 /// <summary>
