@@ -123,53 +123,22 @@ public sealed class UpdateDnsFunction (
 
     IpResolutionResult resolution = this.ipResolver.Resolve (request: request, explicitIp: explicitIp);
 
-    this.logger.LogInformation (message:
-                                "IP resolution diagnostics for {Record}.{Zone}: remote={RemoteIp}, source={SourceIp}, trustedProxyHop={TrustedProxyHop}, parsedForwardedFor={ParsedForwardedFor}, parsedClientIp={ParsedClientIp}, xForwardedFor={XForwardedFor}, forwarded={Forwarded}, xOriginalFor={XOriginalFor}, xRealIp={XRealIp}, clientIp={ClientIp}.",
-                                name,
-                                zone,
-                                resolution.Diagnostics.RemoteIp,
-                                resolution.SourceIp,
-                                resolution.Diagnostics.TrustedProxyHop,
-                                resolution.Diagnostics.ForwardedForIp,
-                                resolution.Diagnostics.ClientIp,
-                                resolution.Diagnostics.ForwardedForHeader,
-                                resolution.Diagnostics.ForwardedHeader,
-                                resolution.Diagnostics.XOriginalForHeader,
-                                resolution.Diagnostics.XRealIpHeader,
-                                resolution.Diagnostics.ClientIpHeader);
+    string target = $"{name}.{zone}";
 
-    if (this.runtimeSettings.LogAllRequestHeadersForIpDiagnostics)
-    {
-      Dictionary<string, string> headers = request.Headers.ToDictionary (keySelector: pair => pair.Key,
-                                                                         elementSelector: pair => IsSensitiveHeader (pair.Key)
-                                                                                                    ? "<redacted>"
-                                                                                                    : pair.Value.ToString (),
-                                                                         comparer: StringComparer.OrdinalIgnoreCase);
-
-      this.logger.LogInformation (message: "Full request header diagnostics for {Record}.{Zone}: {@Headers}",
-                                  name,
-                                  zone,
-                                  headers);
-    }
-
-    if (resolution.SourceIp is not null && IPAddress.IsLoopback (resolution.SourceIp))
-      this.logger.LogWarning (message:
-                              "Source IP resolved to loopback for {Record}.{Zone}; confirm reverse-proxy header forwarding configuration.",
-                              name,
-                              zone);
+    IpDiagnosticsLog.LogResolution (logger: this.logger,
+                                    target: target,
+                                    request: request,
+                                    resolution: resolution,
+                                    logAllHeaders: this.runtimeSettings.LogAllRequestHeadersForIpDiagnostics);
 
     if (resolution.EffectiveIp is null)
       return Error (statusCode: StatusCodes.Status400BadRequest,
                     message: explicitIp is null ? "unable to resolve source IP" : "invalid IP address");
 
-    if (resolution.ExplicitIpMismatch)
-      this.logger.LogWarning (message:
-                              "Client {Client} supplied explicit IP {ExplicitIp} differing from source IP {SourceIp} for {Record}.{Zone}.",
-                              authenticatedClient.Name,
-                              resolution.EffectiveIp,
-                              resolution.SourceIp,
-                              name,
-                              zone);
+    IpDiagnosticsLog.LogExplicitIpMismatch (logger: this.logger,
+                                            client: authenticatedClient.Name,
+                                            target: target,
+                                            resolution: resolution);
 
     try
     {
@@ -242,11 +211,4 @@ public sealed class UpdateDnsFunction (
   /// </summary>
   private static ContentResult Error (int statusCode, string message)
     => new () { Content = $"ERROR: {message}", ContentType = "text/plain", StatusCode = statusCode, };
-
-  private static bool IsSensitiveHeader (string headerName)
-    => headerName.Equals (value: "Authorization",               comparisonType: StringComparison.OrdinalIgnoreCase) ||
-       headerName.Equals (value: "Cookie",                      comparisonType: StringComparison.OrdinalIgnoreCase) ||
-       headerName.Equals (value: "Set-Cookie",                  comparisonType: StringComparison.OrdinalIgnoreCase) ||
-       headerName.Equals (value: "X-Functions-Key",             comparisonType: StringComparison.OrdinalIgnoreCase) ||
-       headerName.Equals (value: "x-ms-token-aad-access-token", comparisonType: StringComparison.OrdinalIgnoreCase);
 }

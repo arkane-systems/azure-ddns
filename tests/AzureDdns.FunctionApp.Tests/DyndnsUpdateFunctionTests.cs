@@ -25,6 +25,7 @@ using AzureDdns.FunctionApp.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
 #endregion
@@ -327,6 +328,7 @@ public sealed class DyndnsUpdateFunctionTests
                                      fqdnResolver: fqdnResolver,
                                      ipResolver: ipResolver,
                                      dnsUpdateService: dnsUpdateService,
+                                     runtimeSettings: Options.Create (new RuntimeSettings ()),
                                      logger: NullLogger<DyndnsUpdateFunction>.Instance);
   }
 

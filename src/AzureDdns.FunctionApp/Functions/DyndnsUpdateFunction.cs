@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
 #endregion
@@ -71,6 +72,7 @@ public sealed class DyndnsUpdateFunction (
   IFqdnResolver                 fqdnResolver,
   IIpResolver                   ipResolver,
   IDnsUpdateService             dnsUpdateService,
+  IOptions<RuntimeSettings>     runtimeSettings,
   ILogger<DyndnsUpdateFunction> logger)
 {
   private readonly IAuthService                  authService      = authService;
@@ -79,6 +81,7 @@ public sealed class DyndnsUpdateFunction (
   private readonly IFqdnResolver                 fqdnResolver     = fqdnResolver;
   private readonly IIpResolver                   ipResolver       = ipResolver;
   private readonly ILogger<DyndnsUpdateFunction> logger           = logger;
+  private readonly RuntimeSettings               runtimeSettings  = runtimeSettings.Value;
 
   /// <summary>
   ///   Processes a DynDNS v2 update request and writes the matching <c>A</c> or <c>AAAA</c>
@@ -158,6 +161,12 @@ public sealed class DyndnsUpdateFunction (
     string? explicitIp = GetQueryValue (request: request, key: "myip");
     IpResolutionResult ipResolution = this.ipResolver.Resolve (request: request, explicitIp: explicitIp);
 
+    IpDiagnosticsLog.LogResolution (logger: this.logger,
+                                    target: hostname,
+                                    request: request,
+                                    resolution: ipResolution,
+                                    logAllHeaders: this.runtimeSettings.LogAllRequestHeadersForIpDiagnostics);
+
     if (ipResolution.EffectiveIp is null)
     {
       this.logger.LogWarning (message: "DynDNS: unable to resolve effective IP for {Hostname}; "                                        +
@@ -168,6 +177,11 @@ public sealed class DyndnsUpdateFunction (
 
       return ServerError ();
     }
+
+    IpDiagnosticsLog.LogExplicitIpMismatch (logger: this.logger,
+                                            client: authenticatedClient.Name,
+                                            target: hostname,
+                                            resolution: ipResolution);
 
     // Step 8: Write the DNS record and return the appropriate DynDNS response code.
     //         FqdnResolver normalizes zones by trimming whitespace and a trailing dot.

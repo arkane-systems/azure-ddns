@@ -79,12 +79,13 @@ Notes:
 - An explicit address that is not a valid IP address is rejected (`/api/update`: `400`; `/api/nic/update`: `911`).
   If the source IP cannot be determined and no explicit address was given, the request fails the same way.
 - If an explicit address differs from the resolved source IP, the update still proceeds (the client is authenticated
-  and authorized) but a warning is logged on `/api/update`.
-- `/api/update` logs the resolution diagnostics (peer, parsed address, raw forwarding headers) on every request,
+  and authorized) but a warning is logged (both endpoints).
+- Both endpoints log the resolution diagnostics (peer, parsed address, raw forwarding headers) on every request,
   and warns if the source IP resolves to loopback, which usually means header forwarding is misconfigured.
-  Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header on `/api/update`
+  Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header on both endpoints
   (`Authorization`, `Cookie`, `Set-Cookie`, `X-Functions-Key` and `x-ms-token-aad-access-token` are redacted).
-  `/api/nic/update` does not currently emit this logging.
+  The query string is never logged (on `/api/update` it carries the raw key). This logging is implemented once, in
+  `Services/IpDiagnosticsLog.cs`, and shared by both functions.
 
 ## Response contract (`/api/update`)
 
@@ -183,7 +184,7 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
 | `AZURE_FUNCTIONS_ENVIRONMENT` | Recommended | Environment label (`Development`, `Production`, etc.) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Recommended | Application Insights connection |
 | `AzureWebJobsStorage` | Required in Azure | Functions host storage connection |
-| `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Optional | Logs all request headers (sensitive ones redacted) on `/api/update` for IP diagnostics; default is `false`. See [Source IP resolution](#source-ip-resolution). |
+| `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Optional | Logs all request headers (sensitive ones redacted) on both endpoints for IP diagnostics; default is `false`. See [Source IP resolution](#source-ip-resolution). |
 
 ### DDNS config file (`config/dyndns.json`)
 
