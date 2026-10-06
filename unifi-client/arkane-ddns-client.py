@@ -78,6 +78,40 @@ def write_cache(cache):
         log('error', 'Failed to write cache file {}: {}'.format(CACHE_FILE, e))
 
 
+# Address flags (as printed by `ip addr`) that mean an address must not be published: privacy-extension
+# temporary addresses change constantly and are not the host's stable address, and deprecated/tentative/
+# dadfailed addresses are not (or are no longer) valid for new connections.
+UNPUBLISHABLE_IPV6_FLAGS = ('temporary', 'deprecated', 'tentative', 'dadfailed')
+
+
+def ipv6_skip_reason(addr, flags):
+    """Return why an IPv6 address must not be published, or None if it should be.
+
+    Only a stable, ISP-assigned global unicast address (GUA, 2000::/3) is published. That excludes
+    unique-local (fc00::/7), link-local (fe80::/10), loopback and multicast addresses, address-flag cases
+    such as temporary privacy addresses, and the documentation prefixes. (Python 2.7 has no ipaddress module,
+    so the first two groups are examined directly.)
+    """
+    for flag in UNPUBLISHABLE_IPV6_FLAGS:
+        if flag in flags:
+            return 'flagged {}'.format(flag)
+
+    groups = addr.lower().split(':')
+    try:
+        first = int(groups[0], 16) if groups[0] else 0
+        second = int(groups[1], 16) if len(groups) > 1 and groups[1] else 0
+    except ValueError:
+        return 'not a parseable address'
+
+    if (first & 0xe000) != 0x2000:
+        return 'not global unicast (2000::/3), e.g. unique-local or link-local'
+    if first == 0x2001 and second == 0x0db8:
+        return 'documentation range 2001:db8::/32'
+    if first == 0x3fff and second < 0x1000:
+        return 'documentation range 3fff::/20'
+    return None
+
+
 def get_interface_addresses(interface):
     """Extract public IPv4 and IPv6 addresses from interface using 'ip addr' output."""
     ipv4 = None
@@ -105,13 +139,13 @@ def get_interface_addresses(interface):
             debug('Found global IPv4: {}'.format(ipv4))
             continue
         
-        # IPv6: look for "inet6 <address>/prefix scope global"
-        ipv6_match = re.search(r'inet6\s+(\S+)/\d+\s+.*scope\s+global', line)
+        # IPv6: look for "inet6 <address>/prefix scope global [flags...]"
+        ipv6_match = re.search(r'inet6\s+(\S+)/\d+\s+.*scope\s+global(.*)$', line)
         if ipv6_match and ipv6 is None:
-            # Skip link-local (fe80::) and documentation ranges (2001:db8::)
             addr = ipv6_match.group(1)
-            if addr.startswith('fe80:') or addr.startswith('2001:db8:'):
-                debug('Skipped non-public IPv6: {}'.format(addr))
+            reason = ipv6_skip_reason(addr, ipv6_match.group(2).split())
+            if reason:
+                debug('Skipped IPv6 {}: {}'.format(addr, reason))
                 continue
             ipv6 = addr
             debug('Found global IPv6: {}'.format(ipv6))

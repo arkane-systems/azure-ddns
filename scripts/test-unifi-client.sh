@@ -38,8 +38,11 @@ cat > /fakebin/ip <<'EOF'
 cat <<'OUT'
 2: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
     inet 203.0.113.5/24 brd 203.0.113.255 scope global eth1
+    inet6 fd12:3456:789a::1/64 scope global
+    inet6 2a02:1234:5678:0:a1b2:c3d4:e5f6:1/64 scope global temporary dynamic
+    inet6 2a02:1234:5678:0:1111:2222:3333:4/64 scope global deprecated dynamic
     inet6 2001:db8::5/64 scope global
-    inet6 2a02:1234:5678::5/64 scope global
+    inet6 2a02:1234:5678::5/64 scope global dynamic mngtmpaddr
     inet6 fe80::1/64 scope link
 OUT
 EOF
@@ -128,6 +131,8 @@ python /client/arkane-ddns-client.py /tmp/test.conf
 cat /tmp/out/server.log
 grep -q '^/api/nic/update hostname=home.example.com myip=203.0.113.5 auth=ok$' /tmp/out/server.log || fail "IPv4 request"
 grep -q '^/api/nic/update hostname=home.example.com myip=2a02:1234:5678::5 auth=ok$' /tmp/out/server.log || fail "IPv6 request"
+# The stable ISP-assigned GUA must win over the ULA, temporary, deprecated and documentation addresses listed first.
+grep -q 'myip=fd12\|myip=2a02:1234:5678:0:\|myip=2001:db8' /tmp/out/server.log && fail "published a ULA/temporary/deprecated/documentation address"
 grep -q '"ipv4": "203.0.113.5"' "$CACHE" || fail "IPv4 not cached"
 grep -q '"ipv6": "2a02:1234:5678::5"' "$CACHE" || fail "IPv6 not cached"
 

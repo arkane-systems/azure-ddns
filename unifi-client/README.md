@@ -236,7 +236,7 @@ sudo bash /root/arkane-ddns-client-staging/install.sh /path/to/files
 
 The script uses `ip addr show <interface>` to enumerate addresses on the WAN interface. It extracts:
 - **IPv4**: First global-scope address (not link-local, not loopback)
-- **IPv6**: First global-scope address that is not link-local (`fe80::`) and not from the documentation range (`2001:db8::`)
+- **IPv6**: First stable global unicast address (`2000::/3`, i.e. what your ISP assigned). Unique-local (`fc00::/7`), link-local, temporary privacy addresses, deprecated/tentative addresses and the documentation prefixes (`2001:db8::/32`, `3fff::/20`) are skipped
 
 If multiple global addresses exist, only the first of each family is used. This is suitable for most Unifi gateway deployments.
 
