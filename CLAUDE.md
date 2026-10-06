@@ -18,7 +18,7 @@ dotnet publish src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj -c Release
 
 Local run: copy `src/AzureDdns.FunctionApp/local.settings.json.example` to `local.settings.json`, set `DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, `CONFIG_PATH`, then `func start` from the app project folder.
 
-Post-deploy validation: `scripts/smoke-test.ps1` (`/api/update`) and `scripts/smoke-test-dyndns.ps1` (`/api/nic/update`). Infra: `infra/main.bicep` (+ `modules/dns-zone-rbac.bicep`), deployed with `az deployment group create` or `azd` (`azure.yaml`). `infra/main.json` is an old compiled ARM copy of the Bicep; nothing references it and it has drifted from `main.bicep`, so treat the Bicep as the source of truth.
+Post-deploy validation: `scripts/smoke-test.ps1` (`/api/update`) and `scripts/smoke-test-dyndns.ps1` (`/api/nic/update`). Infra: `infra/main.bicep` (+ `modules/dns-zone-rbac.bicep`), deployed with `az deployment group create` or `azd` (`azure.yaml`). Deployment compiles the Bicep on the fly; a compiled `infra/main.json` (from `az bicep build`) is gitignored and should not be committed.
 
 ## Architecture
 
