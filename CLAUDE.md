@@ -28,11 +28,15 @@ Two HTTP functions share one service layer (`src/AzureDdns.FunctionApp/Services`
 - `Functions/DyndnsUpdateFunction.cs` — `GET /api/nic/update?hostname[&myip]` with HTTP Basic auth (DynDNS v2, for Unifi/ddclient). Responses are `good <ip>`/`badauth`/`nohost`/`911`; `nohost` is deliberately returned for both unknown and unauthorized records to avoid leaking zone config.
 - Services: `AuthService` (SHA-256 key-hash check + per-client zone/record authorization, `*` wildcard record name, `@` for apex), `FqdnResolver` (longest-suffix match of FQDN to a configured zone; DynDNS endpoint only), `IpResolver` (explicit IP else connection source IP), `DnsUpdateService` (Azure DNS SDK), `ConfigProvider` (reads the config file).
 - Both endpoints share the same `config/dyndns.json` (zones with TTL; clients with `keyHash` and `allowedRecords`). Config is a packaged file by design — changing clients/keys means republishing, not runtime refresh. Typed config models are in `config/DyndnsConfig.cs`.
+- IP resolution (`IpResolver`) is not just the raw connection address: when the remote address is loopback/private/link-local (i.e. a trusted proxy hop, as behind Azure's front end), the source IP is taken from `X-Forwarded-For`, then `CLIENT-IP`; otherwise from the connection. An explicit `ip`/`myip` wins but a mismatch with the source IP is logged. Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` logs all headers (sensitive ones redacted) from `/api/update` only.
+- Config failures fail closed: `FileConfigProvider` returns an empty config if the file is missing or malformed, so every request then fails authentication rather than erroring. `ttl` defaults to 300.
+- `/api/update` checks the zone is configured *before* authenticating (400 `zone not configured`), so it does reveal configured zone names to unauthenticated callers; `/api/nic/update` authenticates first. Only `/api/nic/update` normalizes zone keys from config (trim/trailing dot).
+- No GitHub Actions workflows exist (`.github/workflows` is empty); deployment is manual CLI (see README).
 - An update touches only the record type matching the IP family (IPv4 → `A`, IPv6 → `AAAA`); the two must stay independent.
-- Tests are xUnit in `tests/AzureDdns.FunctionApp.Tests`, one file per service/function.
+- Tests are xUnit (39 passing at last run; the function tests use stub services, so no Azure access is needed) in `tests/AzureDdns.FunctionApp.Tests`, one file per service/function.
 - `unifi-client/` is a separate Python client + systemd units for Unifi gateways (own README); it is not part of the .NET solution (`azure-ddns.slnx`).
 
-## Conventions (from `.github/copilot-instructions.md`)
+## Conventions
 
 - Keep the `/api/update` contract unchanged unless requirements change; keep plain-text responses and source-IP fallback when `ip` is omitted.
 - Small, testable service classes over large function methods; strongly typed config; managed identity, no embedded credentials.
