@@ -141,11 +141,12 @@ Perform from a client/network path representing your DDNS caller:
 3. Invalid key request returns `401` with body `badauth`.
 4. Unauthorized or unknown hostname returns `200` with body `nohost`.
 5. A plain `http://` request is refused or redirected (the Function App has `httpsOnly` enabled).
+6. Repeating an update with the same address returns `nochg <ip>` and makes no DNS write.
 
 Expected behavior:
 
 - `A` and `AAAA` updates remain independent.
-- Responses are DynDNS v2 plain-text codes (`good <ip>`, `badauth`, `nohost`, `911`).
+- Responses are DynDNS v2 plain-text codes (`good <ip>`, `nochg <ip>`, `badauth`, `nohost`, `911`).
 
 ### C. Logging and security validation
 

@@ -48,7 +48,8 @@ Steps:
 7. Effective IP is resolved:
    - `myip` query value if provided and valid
    - otherwise the resolved source IP (see [Source IP resolution](#source-ip-resolution))
-8. DNS update is sent to Azure DNS using managed identity.
+8. The existing record set is read; if it already holds the address and TTL nothing is written, otherwise the update is
+   sent to Azure DNS using managed identity.
 9. The function maps the coordinator's status to a DynDNS v2 plain-text response.
 
 ## Source IP resolution
@@ -91,7 +92,8 @@ Responses are plain text per DynDNS v2 specification:
 
 | Body | HTTP status | Meaning |
 |---|---|---|
-| `good <ip>` | 200 | Update succeeded |
+| `good <ip>` | 200 | Record written |
+| `nochg <ip>` | 200 | Record already held this address and TTL; nothing was written |
 | `badauth` | 401 | Credentials missing or invalid |
 | `nohost` | 200 | FQDN not resolvable to a configured zone/record, or record not authorized |
 | `911` | 200 | Server-side error (app-setting misconfiguration, unresolvable IP, or DNS update failure) |
@@ -99,7 +101,10 @@ Responses are plain text per DynDNS v2 specification:
 
 > **Note**: `nohost` is returned for both missing and unauthorized records to avoid leaking information about configured zones.
 
-> **Note**: This endpoint always returns `good <ip>` on success. It never returns `nochg` — a no-change check is not performed.
+> **Note**: Before writing, the app reads the existing record set. If it already contains exactly the requested address
+> and the zone's configured TTL, no write is made and the response is `nochg <ip>`; otherwise (different address, different
+> TTL, extra addresses, or no record yet) the record set is written and the response is `good <ip>`. Clients that report
+> their address every few minutes therefore cause almost no Azure DNS writes.
 
 ### Prerequisites in `dyndns.json`
 
@@ -335,6 +340,7 @@ What the script does:
 6. Sends an IPv6 update request and verifies the DynDNS `good <ip>` response.
 7. Queries an authoritative name server again and waits for the `AAAA` record to match the generated IPv6 address.
 8. Confirms that the earlier `A` record value remains unchanged to validate `A`/`AAAA` independence.
+9. Repeats the IPv4 update and verifies the response is `nochg <ip>` (the record already held that address).
 
 Parameters:
 

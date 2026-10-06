@@ -37,7 +37,10 @@ namespace AzureDdns.FunctionApp.Services;
 /// </remarks>
 public enum DdnsUpdateStatus
 {
-  /// <summary>The DNS record was written.</summary>
+  /// <summary>
+  ///   The DNS record now holds the requested address. Check <c>Update.Changed</c> to tell whether it was written
+  ///   or was already current.
+  /// </summary>
   Success,
 
   /// <summary>The configuration file is missing, unreadable or malformed (a server fault).</summary>
@@ -218,7 +221,9 @@ public sealed class DdnsUpdateCoordinator (
                                                                          zoneConfig: zoneConfig,
                                                                          cancellationToken: cancellationToken);
 
-      this.logger.LogInformation (message: "Updated {RecordType} record {Fqdn} for client {Client} to {IpAddress}.",
+      this.logger.LogInformation (message: result.Changed
+                                              ? "Updated {RecordType} record {Fqdn} for client {Client} to {IpAddress}."
+                                              : "{RecordType} record {Fqdn} already up to date for client {Client} ({IpAddress}); no write.",
                                   result.RecordType,
                                   LogSanitizer.Sanitize (result.Fqdn),
                                   LogSanitizer.Sanitize (client.Name),

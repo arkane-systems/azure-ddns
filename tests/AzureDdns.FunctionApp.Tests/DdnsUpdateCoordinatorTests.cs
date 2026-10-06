@@ -47,7 +47,7 @@ public sealed class DdnsUpdateCoordinatorTests
   #region Nested type: RecordingDnsUpdateService
 
   /// <summary>DNS stub that records the address it was asked to write, or throws a configured exception.</summary>
-  private sealed class RecordingDnsUpdateService (Exception? exception = null) : IDnsUpdateService
+  private sealed class RecordingDnsUpdateService (Exception? exception = null, bool changed = true) : IDnsUpdateService
   {
     public IPAddress? WrittenAddress { get; private set; }
 
@@ -66,7 +66,8 @@ public sealed class DdnsUpdateCoordinatorTests
 
       return Task.FromResult (new UpdateDnsResult (RecordType: recordType,
                                                    Fqdn: $"{name}.{zone}",
-                                                   IpAddress: ipAddress.ToString ()));
+                                                   IpAddress: ipAddress.ToString (),
+                                                   Changed: changed));
     }
   }
 
@@ -134,6 +135,17 @@ public sealed class DdnsUpdateCoordinatorTests
     Assert.Equal (expected: "A",                              actual: result.Update!.RecordType);
     Assert.Equal (expected: "home.example.com",               actual: result.Update.Fqdn);
     Assert.Equal (expected: IPAddress.Parse ("203.0.113.10"), actual: dns.WrittenAddress);
+  }
+
+  [Fact]
+  public async Task UpdateAsync_ReportsSuccessWithoutChange_WhenRecordAlreadyCurrent ()
+  {
+    var dns = new RecordingDnsUpdateService (changed: false);
+
+    DdnsUpdateResult result = await CreateCoordinator (dns).UpdateAsync (CreateRequest ());
+
+    Assert.True (result.IsSuccess);
+    Assert.False (result.Update!.Changed);
   }
 
   [Fact]

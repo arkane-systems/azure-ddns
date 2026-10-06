@@ -58,7 +58,8 @@ namespace AzureDdns.FunctionApp.Functions;
 ///   </para>
 ///   <para>
 ///     Responses follow the DynDNS v2 response code convention (plain text body):
-///     <c>good&lt;space&gt;&lt;ip&gt;</c> on success, <c>badauth</c> (HTTP 401) for authentication failure,
+///     <c>good&lt;space&gt;&lt;ip&gt;</c> when the record was written, <c>nochg&lt;space&gt;&lt;ip&gt;</c> when it already
+///     held that address (no write was made), <c>badauth</c> (HTTP 401) for authentication failure,
 ///     <c>nohost</c> when the hostname is not configured or the client is not authorised, and <c>911</c>
 ///     for a server-side error (HTTP 503 when the configuration file itself is unavailable, otherwise 200).
 ///   </para>
@@ -96,7 +97,7 @@ public sealed class DyndnsUpdateFunction (IDdnsUpdateCoordinator coordinator)
 
     return result.Status switch
            {
-             DdnsUpdateStatus.Success => Good (result.Update!.IpAddress),
+             DdnsUpdateStatus.Success => result.Update!.Changed ? Good (result.Update.IpAddress) : Nochg (result.Update.IpAddress),
              DdnsUpdateStatus.InvalidCredentials => Badauth (),
 
              // The DynDNS protocol has no "forbidden" code, and we must not reveal whether a host exists,
@@ -166,6 +167,9 @@ public sealed class DyndnsUpdateFunction (IDdnsUpdateCoordinator coordinator)
 
   private static ContentResult Good (string ip)
     => new () { Content = $"good {ip}", ContentType = "text/plain", StatusCode = StatusCodes.Status200OK, };
+
+  private static ContentResult Nochg (string ip)
+    => new () { Content = $"nochg {ip}", ContentType = "text/plain", StatusCode = StatusCodes.Status200OK, };
 
   private static ContentResult Badauth ()
     => new ()

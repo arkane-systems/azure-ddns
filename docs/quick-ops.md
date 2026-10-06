@@ -83,6 +83,7 @@ Expected checks:
 3. bad key returns `401` with body `badauth`
 4. unauthorized or unknown hostname returns `200` with body `nohost`
 5. plain `http://` requests are refused or redirected (the app is HTTPS-only)
+6. repeating the same update returns `nochg <ip>` (no write is made)
 
 ## 7) Rotate a client key hash
 

@@ -227,6 +227,27 @@ public sealed class DyndnsUpdateFunctionTests
   }
 
   [Fact]
+  public async Task RunAsync_ReturnsNochg_WhenRecordAlreadyCurrent ()
+  {
+    var config    = BuildConfig ();
+    var dnsResult = new UpdateDnsResult (RecordType: "A", Fqdn: "home.example.com", IpAddress: "203.0.113.10", Changed: false);
+
+    DyndnsUpdateFunction function = CreateFunction (config: config,
+                                                    isAuthorized: true,
+                                                    fqdnResolution: new FqdnResolution (Zone: "example.com", Name: "home"),
+                                                    dnsUpdateResult: dnsResult);
+    HttpRequest request = CreateRequest (query: new Dictionary<string, string?>
+                                                { ["hostname"] = "home.example.com", ["myip"] = "203.0.113.10", },
+                                         authHeader: MakeBasicAuth ("client", "key"));
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status200OK, actual: content.StatusCode);
+    Assert.Equal (expected: "nochg 203.0.113.10",    actual: content.Content);
+  }
+
+  [Fact]
   public async Task RunAsync_ReturnsGood_WithIpv6Address ()
   {
     var config    = BuildConfig ();

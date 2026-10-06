@@ -60,11 +60,15 @@ public sealed class DnsUpdateService (IOptions<RuntimeSettings> runtimeSettings)
   private readonly RuntimeSettings settings  = runtimeSettings.Value;
 
   /// <summary>
-  ///   Creates or updates a single DNS record set matching the IP address family.
+  ///   Creates or updates a single DNS record set matching the IP address family, writing only when needed.
   /// </summary>
   /// <remarks>
   ///   This method intentionally updates only one record family per request:
   ///   IPv4 -> A, IPv6 -> AAAA. The opposite record family is left untouched.
+  ///   The existing record set is read first; if it already holds exactly the desired address and TTL
+  ///   (see <see cref="DnsRecordComparison" />) nothing is written and the result has
+  ///   <see cref="UpdateDnsResult.Changed" /> set to <see langword="false" />. DDNS clients typically report
+  ///   their address every few minutes, so this avoids almost all Azure DNS writes (and activity-log noise).
   /// </remarks>
   public async Task<UpdateDnsResult> UpdateAsync (string            zone,
                                                   string            name,
@@ -89,6 +93,27 @@ public sealed class DnsUpdateService (IOptions<RuntimeSettings> runtimeSettings)
     switch (ipAddress.AddressFamily)
     {
       case AddressFamily.InterNetwork:
+      {
+        string fqdn = ToFqdn (name: relativeName, zone: normalizedZone);
+
+        DnsARecordResource? existing = null;
+
+        try
+        {
+          existing = await zoneResource.GetDnsARecords ().GetAsync (relativeName, cancellationToken);
+        }
+        catch (RequestFailedException exception) when (exception.Status == 404)
+        {
+          // No record set yet: nothing to compare with, so fall through and create it.
+        }
+
+        if (existing is not null &&
+            DnsRecordComparison.IsCurrent (existingAddresses: existing.Data.DnsARecords.Select (record => record.IPv4Address),
+                                           existingTtl: existing.Data.TtlInSeconds,
+                                           desiredAddress: ipAddress,
+                                           desiredTtl: ttl))
+          return new UpdateDnsResult (RecordType: "A", Fqdn: fqdn, IpAddress: ipAddress.ToString (), Changed: false);
+
         var aData = new DnsARecordData { TtlInSeconds           = ttl, };
         aData.DnsARecords.Add (new DnsARecordInfo { IPv4Address = ipAddress });
 
@@ -98,11 +123,31 @@ public sealed class DnsUpdateService (IOptions<RuntimeSettings> runtimeSettings)
                                                 data: aData,
                                                 cancellationToken: cancellationToken);
 
-        return new UpdateDnsResult (RecordType: "A",
-                                    Fqdn: ToFqdn (name: relativeName, zone: normalizedZone),
-                                    IpAddress: ipAddress.ToString ());
+        return new UpdateDnsResult (RecordType: "A", Fqdn: fqdn, IpAddress: ipAddress.ToString ());
+      }
 
       case AddressFamily.InterNetworkV6:
+      {
+        string fqdn = ToFqdn (name: relativeName, zone: normalizedZone);
+
+        DnsAaaaRecordResource? existing = null;
+
+        try
+        {
+          existing = await zoneResource.GetDnsAaaaRecords ().GetAsync (relativeName, cancellationToken);
+        }
+        catch (RequestFailedException exception) when (exception.Status == 404)
+        {
+          // No record set yet: nothing to compare with, so fall through and create it.
+        }
+
+        if (existing is not null &&
+            DnsRecordComparison.IsCurrent (existingAddresses: existing.Data.DnsAaaaRecords.Select (record => record.IPv6Address),
+                                           existingTtl: existing.Data.TtlInSeconds,
+                                           desiredAddress: ipAddress,
+                                           desiredTtl: ttl))
+          return new UpdateDnsResult (RecordType: "AAAA", Fqdn: fqdn, IpAddress: ipAddress.ToString (), Changed: false);
+
         var aaaaData = new DnsAaaaRecordData { TtlInSeconds              = ttl, };
         aaaaData.DnsAaaaRecords.Add (new DnsAaaaRecordInfo { IPv6Address = ipAddress });
 
@@ -112,9 +157,8 @@ public sealed class DnsUpdateService (IOptions<RuntimeSettings> runtimeSettings)
                                                 data: aaaaData,
                                                 cancellationToken: cancellationToken);
 
-        return new UpdateDnsResult (RecordType: "AAAA",
-                                    Fqdn: ToFqdn (name: relativeName, zone: normalizedZone),
-                                    IpAddress: ipAddress.ToString ());
+        return new UpdateDnsResult (RecordType: "AAAA", Fqdn: fqdn, IpAddress: ipAddress.ToString ());
+      }
 
       default:
         throw new ArgumentException (message: "Only IPv4 and IPv6 addresses are supported.",
@@ -134,5 +178,9 @@ public sealed class DnsUpdateService (IOptions<RuntimeSettings> runtimeSettings)
 /// </summary>
 /// <param name="RecordType">Updated record type (<c>A</c> or <c>AAAA</c>).</param>
 /// <param name="Fqdn">Fully qualified DNS name that was updated.</param>
-/// <param name="IpAddress">IP value written to the record set.</param>
-public sealed record UpdateDnsResult (string RecordType, string Fqdn, string IpAddress);
+/// <param name="IpAddress">IP value now held by the record set.</param>
+/// <param name="Changed">
+///   <see langword="true" /> if the record set was written; <see langword="false" /> if it already held exactly
+///   this address and TTL and the write was skipped.
+/// </param>
+public sealed record UpdateDnsResult (string RecordType, string Fqdn, string IpAddress, bool Changed = true);

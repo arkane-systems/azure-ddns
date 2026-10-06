@@ -161,7 +161,12 @@ function Invoke-DynDnsUpdate
 
     [Parameter(Mandatory = $true)]
     [ValidateSet('A', 'AAAA')]
-    [string]$ExpectedRecordType
+    [string]$ExpectedRecordType,
+
+    # 'good' when the update should write the record; 'nochg' when it should already hold this address.
+    [Parameter()]
+    [ValidateSet('good', 'nochg')]
+    [string]$ExpectedVerb = 'good'
   )
 
   $parsedIpAddress = $null
@@ -184,7 +189,7 @@ function Invoke-DynDnsUpdate
 
   $uri = "$EndpointUrl`?$query"
   $canonicalIpAddress = ConvertTo-CanonicalIpAddressString -IpAddress $IpAddress
-  $expectedBody = "good $canonicalIpAddress"
+  $expectedBody = "$ExpectedVerb $canonicalIpAddress"
 
   $response = Invoke-WebRequest -Uri $uri `
                                 -Method GET `
@@ -319,7 +324,7 @@ Write-Host "IPv4 test value         : $ipv4"
 Write-Host "IPv6 test value         : $ipv6"
 
 Write-Host ""
-Write-Host "Step 1/4: Updating A record via DynDNS..."
+Write-Host "Step 1/5: Updating A record via DynDNS..."
 Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -Client $ClientName `
                     -Key $ClientKey `
@@ -327,7 +332,7 @@ Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -IpAddress $ipv4 `
                     -ExpectedRecordType 'A' | Out-Null
 
-Write-Host "Step 2/4: Verifying authoritative A record..."
+Write-Host "Step 2/5: Verifying authoritative A record..."
 Wait-ForDnsValue -Server $authoritativeServer `
                  -Fqdn $fqdn `
                  -RecordType 'A' `
@@ -335,7 +340,7 @@ Wait-ForDnsValue -Server $authoritativeServer `
                  -TimeoutSeconds $DnsTimeoutSeconds `
                  -PollIntervalSeconds $DnsPollIntervalSeconds | Out-Null
 
-Write-Host "Step 3/4: Updating AAAA record via DynDNS..."
+Write-Host "Step 3/5: Updating AAAA record via DynDNS..."
 Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -Client $ClientName `
                     -Key $ClientKey `
@@ -343,7 +348,7 @@ Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -IpAddress $ipv6 `
                     -ExpectedRecordType 'AAAA' | Out-Null
 
-Write-Host "Step 4/4: Verifying authoritative AAAA record and A/AAAA independence..."
+Write-Host "Step 4/5: Verifying authoritative AAAA record and A/AAAA independence..."
 Wait-ForDnsValue -Server $authoritativeServer `
                  -Fqdn $fqdn `
                  -RecordType 'AAAA' `
@@ -359,7 +364,17 @@ if ($aValuesAfterIpv6.Count -ne 1 -or $aValuesAfterIpv6[0] -ne $ipv4)
   throw "A/AAAA independence check failed. Expected A $fqdn to remain '$ipv4' but found '$actual'."
 }
 
+Write-Host "Step 5/5: Repeating the A update; the record already holds this address, so expecting nochg..."
+Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
+                    -Client $ClientName `
+                    -Key $ClientKey `
+                    -Hostname $fqdn `
+                    -IpAddress $ipv4 `
+                    -ExpectedRecordType 'A' `
+                    -ExpectedVerb 'nochg' | Out-Null
+
 Write-Host ""
 Write-Host "DynDNS Smoke test passed."
 Write-Host "Verified A    : $fqdn -> $ipv4"
 Write-Host "Verified AAAA : $fqdn -> $ipv6"
+Write-Host "Verified nochg : repeated A update was a no-op"
