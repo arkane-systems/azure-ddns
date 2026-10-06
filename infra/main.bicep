@@ -159,11 +159,13 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         version: '10.0'
       }
       scaleAndConcurrency: {
-        // Keep this at the Flex Consumption default (40). A cap of 5 was tried and caused intermittent stalls: roughly
-        // 3-10% of requests hung or waited 5-20 s (retries in multiples of 5 s) for several hours after a deploy, and
-        // 200/200 requests were clean once the cap was raised back to 40. A low cap leaves the platform no headroom while it
-        // replaces instances. Cost exposure is not a reason to lower it: Flex bills for execution time and a rejected
-        // request takes a few milliseconds.
+        // Do not go below 40 for an HTTP app. The Flex Consumption default is 100 (range 1-1000), and Microsoft's docs warn that
+        // setting it below 40 for HTTP apps can cause frequent request failures and prolonged throttling windows. A cap of 5 was
+        // tried here and caused intermittent stalls: roughly 3-10% of requests hung or waited 5-20 s (in 5 s steps) for several
+        // hours after a deploy, and 200/200 requests were clean once the cap was raised to 40. (The docs do not describe the 5 s
+        // pattern; the likely cause is the platform's own instance bursts and replacements filling a tiny cap and then waiting
+        // on throttled retries.) 40 is the lowest recommended value; the default of 100 would also be fine. Cost exposure is not
+        // a reason to lower it: Flex bills for execution time and a rejected request takes a few milliseconds.
         maximumInstanceCount: 40
         instanceMemoryMB: 512
       }
