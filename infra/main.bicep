@@ -139,13 +139,16 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   }
   properties: {
     serverFarmId: functionPlan.id
+    // Credentials travel in the Authorization header; never accept them over plain HTTP.
+    httpsOnly: true
     functionAppConfig: {
       runtime: {
         name: 'dotnet-isolated'
         version: '10.0'
       }
       scaleAndConcurrency: {
-        maximumInstanceCount: 40
+        // A DDNS service needs very little scale; a low cap bounds cost if the anonymous endpoint is abused.
+        maximumInstanceCount: 5
         instanceMemoryMB: 512
       }
       deployment: {
