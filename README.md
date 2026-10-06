@@ -65,10 +65,17 @@ or unique-local (`fc00::/7`); IPv4-mapped IPv6 peers are unwrapped first.
 | Peer address | Source IP used |
 |---|---|
 | Not a known hop (public address) | The peer address itself; all forwarding headers are ignored, so a direct caller cannot spoof its address |
-| Known hop | First parseable entry of `X-Forwarded-For`, else the first parseable `CLIENT-IP` value, else the peer address |
+| Known hop | The rightmost `X-Forwarded-For` entry that is not itself an internal address, else the first parseable `CLIENT-IP` value, else the peer address |
 
 Notes:
 
+- `X-Forwarded-For` is read from the **right**. Each proxy appends the address of the peer it saw, so everything left
+  of the entries added by Azure's own front end was chosen by the caller and can be forged; taking the leftmost entry
+  (as earlier versions did) let any caller pick its own "source IP" just by sending the header. Internal addresses on
+  the right (the platform's own hops) are skipped, and the first address that is not internal is used. An entry that is
+  not a valid address stops the walk instead of trusting anything left of it, falling back to `CLIENT-IP` and then the
+  peer. Several `X-Forwarded-For` header lines are treated as one chain, in order. If `X-Forwarded-For` and `CLIENT-IP`
+  name different clients, a warning is logged (that would mean one of them is not being set by the platform).
 - Forwarding-header entries may be `ip`, `ip:port`, or `[ipv6]:port`; the port is stripped. Unparseable entries are skipped.
 - `Forwarded`, `X-Original-For` and `X-Real-IP` are captured for diagnostics only and never used to choose the IP.
 - IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) are converted to the IPv4 address they represent, both for `myip`

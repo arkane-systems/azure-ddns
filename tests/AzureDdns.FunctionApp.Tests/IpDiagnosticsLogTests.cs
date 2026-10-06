@@ -122,6 +122,35 @@ public sealed class IpDiagnosticsLogTests
   }
 
   [Fact]
+  public void LogResolution_WarnsWhenForwardedForAndClientIpDisagree ()
+  {
+    var         logger  = new CapturingLogger ();
+    HttpRequest request = CreateRequest ("10.0.0.5");
+    request.Headers["X-Forwarded-For"] = "198.51.100.25";
+    request.Headers["CLIENT-IP"]       = "203.0.113.9:4000";
+    IpResolutionResult resolution = new IpResolver ().Resolve (request: request, explicitIp: null);
+
+    IpDiagnosticsLog.LogResolution (logger: logger, target: "home.example.com", request: request, resolution: resolution, logAllHeaders: false);
+
+    Assert.Contains (collection: logger.Entries,
+                     filter: entry => entry.Level == LogLevel.Warning && entry.Message.Contains ("name different clients"));
+  }
+
+  [Fact]
+  public void LogResolution_DoesNotWarnWhenForwardedForAndClientIpAgree ()
+  {
+    var         logger  = new CapturingLogger ();
+    HttpRequest request = CreateRequest ("10.0.0.5");
+    request.Headers["X-Forwarded-For"] = "198.51.100.25:5555";
+    request.Headers["CLIENT-IP"]       = "198.51.100.25:4000";
+    IpResolutionResult resolution = new IpResolver ().Resolve (request: request, explicitIp: null);
+
+    IpDiagnosticsLog.LogResolution (logger: logger, target: "home.example.com", request: request, resolution: resolution, logAllHeaders: false);
+
+    Assert.DoesNotContain (collection: logger.Entries, filter: entry => entry.Message.Contains ("name different clients"));
+  }
+
+  [Fact]
   public void LogResolution_WarnsOnLoopbackSourceIp ()
   {
     var                logger     = new CapturingLogger ();

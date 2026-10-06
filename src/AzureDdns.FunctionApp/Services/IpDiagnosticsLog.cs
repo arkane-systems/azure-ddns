@@ -101,6 +101,15 @@ public static class IpDiagnosticsLog
       logger.LogInformation (message: "Full request header diagnostics for {Target}: {@Headers}", LogSanitizer.Sanitize (target), headers);
     }
 
+    // The two platform-supplied client headers should name the same host. If they do not, one of them is being
+    // set or forged by the caller, which is worth knowing about when deciding which header to trust.
+    if (diagnostics.ForwardedForIp is not null && diagnostics.ClientIp is not null &&
+        !diagnostics.ForwardedForIp.Equals (diagnostics.ClientIp))
+      logger.LogWarning (message: "X-Forwarded-For ({ForwardedForIp}) and CLIENT-IP ({ClientIp}) name different clients for {Target}; using X-Forwarded-For.",
+                         diagnostics.ForwardedForIp,
+                         diagnostics.ClientIp,
+                         LogSanitizer.Sanitize (target));
+
     if (resolution.SourceIp is not null && IPAddress.IsLoopback (resolution.SourceIp))
       logger.LogWarning (message:
                          "Source IP resolved to loopback for {Target}; confirm reverse-proxy header forwarding configuration.",
