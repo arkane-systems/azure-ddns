@@ -19,7 +19,16 @@ param(
   [int]$DnsTimeoutSeconds = 120,
 
   [Parameter()]
-  [int]$DnsPollIntervalSeconds = 5
+  [int]$DnsPollIntervalSeconds = 5,
+
+  # By default the test publishes random documentation-range addresses (RFC 5737 / RFC 3849), which can never point
+  # at a real host. If the deployment sets ALLOW_DOCUMENTATION_ADDRESSES=false, supply addresses it will accept
+  # (publicly routable ones); the test will point the record at them, so use addresses you control or do not mind.
+  [Parameter()]
+  [string]$TestIpv4,
+
+  [Parameter()]
+  [string]$TestIpv6
 )
 
 Set-StrictMode -Version Latest
@@ -161,7 +170,12 @@ function Invoke-DynDnsUpdate
 
     [Parameter(Mandatory = $true)]
     [ValidateSet('A', 'AAAA')]
-    [string]$ExpectedRecordType
+    [string]$ExpectedRecordType,
+
+    # 'good' when the update should write the record; 'nochg' when it should already hold this address.
+    [Parameter()]
+    [ValidateSet('good', 'nochg')]
+    [string]$ExpectedVerb = 'good'
   )
 
   $parsedIpAddress = $null
@@ -184,7 +198,7 @@ function Invoke-DynDnsUpdate
 
   $uri = "$EndpointUrl`?$query"
   $canonicalIpAddress = ConvertTo-CanonicalIpAddressString -IpAddress $IpAddress
-  $expectedBody = "good $canonicalIpAddress"
+  $expectedBody = "$ExpectedVerb $canonicalIpAddress"
 
   $response = Invoke-WebRequest -Uri $uri `
                                 -Method GET `
@@ -308,8 +322,26 @@ function Wait-ForDnsValue
 
 $endpointUrl = Get-DyndnsEndpointUrl -BaseUrl $FunctionBaseUrl
 $fqdn = Get-TestFqdn -RecordName $Name -DnsZone $Zone
-$ipv4 = ConvertTo-CanonicalIpAddressString -IpAddress (New-Rfc5737Ipv4)
-$ipv6 = ConvertTo-CanonicalIpAddressString -IpAddress (New-Rfc3849Ipv6)
+if (-not [string]::IsNullOrWhiteSpace($TestIpv4))
+{
+  $parsed = $null
+  if (-not [System.Net.IPAddress]::TryParse($TestIpv4, [ref]$parsed) -or $parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork)
+  {
+    throw "TestIpv4 '$TestIpv4' is not a valid IPv4 address."
+  }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($TestIpv6))
+{
+  $parsed = $null
+  if (-not [System.Net.IPAddress]::TryParse($TestIpv6, [ref]$parsed) -or $parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetworkV6)
+  {
+    throw "TestIpv6 '$TestIpv6' is not a valid IPv6 address."
+  }
+}
+
+$ipv4 = ConvertTo-CanonicalIpAddressString -IpAddress $(if ([string]::IsNullOrWhiteSpace($TestIpv4)) { New-Rfc5737Ipv4 } else { $TestIpv4 })
+$ipv6 = ConvertTo-CanonicalIpAddressString -IpAddress $(if ([string]::IsNullOrWhiteSpace($TestIpv6)) { New-Rfc3849Ipv6 } else { $TestIpv6 })
 $authoritativeServer = Get-AuthoritativeNameServer -DnsZone $Zone
 
 Write-Host "DynDNS Smoke test target : $fqdn"
@@ -319,7 +351,7 @@ Write-Host "IPv4 test value         : $ipv4"
 Write-Host "IPv6 test value         : $ipv6"
 
 Write-Host ""
-Write-Host "Step 1/4: Updating A record via DynDNS..."
+Write-Host "Step 1/5: Updating A record via DynDNS..."
 Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -Client $ClientName `
                     -Key $ClientKey `
@@ -327,7 +359,7 @@ Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -IpAddress $ipv4 `
                     -ExpectedRecordType 'A' | Out-Null
 
-Write-Host "Step 2/4: Verifying authoritative A record..."
+Write-Host "Step 2/5: Verifying authoritative A record..."
 Wait-ForDnsValue -Server $authoritativeServer `
                  -Fqdn $fqdn `
                  -RecordType 'A' `
@@ -335,7 +367,7 @@ Wait-ForDnsValue -Server $authoritativeServer `
                  -TimeoutSeconds $DnsTimeoutSeconds `
                  -PollIntervalSeconds $DnsPollIntervalSeconds | Out-Null
 
-Write-Host "Step 3/4: Updating AAAA record via DynDNS..."
+Write-Host "Step 3/5: Updating AAAA record via DynDNS..."
 Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -Client $ClientName `
                     -Key $ClientKey `
@@ -343,7 +375,7 @@ Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
                     -IpAddress $ipv6 `
                     -ExpectedRecordType 'AAAA' | Out-Null
 
-Write-Host "Step 4/4: Verifying authoritative AAAA record and A/AAAA independence..."
+Write-Host "Step 4/5: Verifying authoritative AAAA record and A/AAAA independence..."
 Wait-ForDnsValue -Server $authoritativeServer `
                  -Fqdn $fqdn `
                  -RecordType 'AAAA' `
@@ -359,7 +391,17 @@ if ($aValuesAfterIpv6.Count -ne 1 -or $aValuesAfterIpv6[0] -ne $ipv4)
   throw "A/AAAA independence check failed. Expected A $fqdn to remain '$ipv4' but found '$actual'."
 }
 
+Write-Host "Step 5/5: Repeating the A update; the record already holds this address, so expecting nochg..."
+Invoke-DynDnsUpdate -EndpointUrl $endpointUrl `
+                    -Client $ClientName `
+                    -Key $ClientKey `
+                    -Hostname $fqdn `
+                    -IpAddress $ipv4 `
+                    -ExpectedRecordType 'A' `
+                    -ExpectedVerb 'nochg' | Out-Null
+
 Write-Host ""
 Write-Host "DynDNS Smoke test passed."
 Write-Host "Verified A    : $fqdn -> $ipv4"
 Write-Host "Verified AAAA : $fqdn -> $ipv6"
+Write-Host "Verified nochg : repeated A update was a no-op"

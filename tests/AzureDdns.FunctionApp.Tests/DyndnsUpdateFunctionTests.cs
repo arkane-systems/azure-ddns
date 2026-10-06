@@ -226,6 +226,49 @@ public sealed class DyndnsUpdateFunctionTests
     Assert.Equal (expected: "good 203.0.113.10", actual: content.Content);
   }
 
+  [Theory]
+  [InlineData ("192.168.1.10")]
+  [InlineData ("10.0.0.5")]
+  [InlineData ("fd12:3456:789a::1")]
+  public async Task RunAsync_ReturnsServerError_WhenAddressIsNotPubliclyRoutable (string myip)
+  {
+    var config = BuildConfig ();
+
+    DyndnsUpdateFunction function = CreateFunction (config: config,
+                                                    isAuthorized: true,
+                                                    fqdnResolution: new FqdnResolution (Zone: "example.com", Name: "home"));
+    HttpRequest request = CreateRequest (query: new Dictionary<string, string?>
+                                                { ["hostname"] = "home.example.com", ["myip"] = myip, },
+                                         authHeader: MakeBasicAuth ("client", "key"));
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status200OK, actual: content.StatusCode);
+    Assert.Equal (expected: "911",                   actual: content.Content);
+  }
+
+  [Fact]
+  public async Task RunAsync_ReturnsNochg_WhenRecordAlreadyCurrent ()
+  {
+    var config    = BuildConfig ();
+    var dnsResult = new UpdateDnsResult (RecordType: "A", Fqdn: "home.example.com", IpAddress: "203.0.113.10", Changed: false);
+
+    DyndnsUpdateFunction function = CreateFunction (config: config,
+                                                    isAuthorized: true,
+                                                    fqdnResolution: new FqdnResolution (Zone: "example.com", Name: "home"),
+                                                    dnsUpdateResult: dnsResult);
+    HttpRequest request = CreateRequest (query: new Dictionary<string, string?>
+                                                { ["hostname"] = "home.example.com", ["myip"] = "203.0.113.10", },
+                                         authHeader: MakeBasicAuth ("client", "key"));
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status200OK, actual: content.StatusCode);
+    Assert.Equal (expected: "nochg 203.0.113.10",    actual: content.Content);
+  }
+
   [Fact]
   public async Task RunAsync_ReturnsGood_WithIpv6Address ()
   {
@@ -323,13 +366,17 @@ public sealed class DyndnsUpdateFunctionTests
                                            ? new StubDnsUpdateService (result: dnsUpdateResult, exception: dnsUpdateException)
                                            : new NoopDnsUpdateService ();
 
-    return new DyndnsUpdateFunction (configProvider: configProvider,
-                                     authService: authService,
-                                     fqdnResolver: fqdnResolver,
-                                     ipResolver: ipResolver,
-                                     dnsUpdateService: dnsUpdateService,
-                                     runtimeSettings: Options.Create (new RuntimeSettings ()),
-                                     logger: NullLogger<DyndnsUpdateFunction>.Instance);
+    // The function is a thin front end over the coordinator; these tests exercise the two together
+    // (with stubbed collaborators) so they cover the wire-format mapping of every outcome.
+    var coordinator = new DdnsUpdateCoordinator (configProvider: configProvider,
+                                                 authService: authService,
+                                                 fqdnResolver: fqdnResolver,
+                                                 ipResolver: ipResolver,
+                                                 dnsUpdateService: dnsUpdateService,
+                                                 runtimeSettings: Options.Create (new RuntimeSettings ()),
+                                                 logger: NullLogger<DdnsUpdateCoordinator>.Instance);
+
+    return new DyndnsUpdateFunction (coordinator);
   }
 
   private static HttpRequest CreateRequest (Dictionary<string, string?> query,

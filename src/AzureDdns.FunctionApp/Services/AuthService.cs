@@ -48,30 +48,51 @@ public interface IAuthService
 public sealed class AuthService : IAuthService
 {
     /// <summary>
+    ///     A well-formed (64 hex character) hash compared against when there is no real hash to compare with, so that
+    ///     the comparison still happens. It is never accepted as a match; see <see cref="Authenticate" />.
+    /// </summary>
+    private const string DummyHash = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    /// <summary>
     ///     Validates a client name/key pair against configured SHA-256 hashes.
     /// </summary>
     /// <remarks>
-    ///     Key comparison uses fixed-time byte comparison to reduce timing side-channel risk.
+    ///     <para>
+    ///         Key comparison uses fixed-time byte comparison to reduce timing side-channel risk.
+    ///     </para>
+    ///     <para>
+    ///         The same work is done whether or not the client name exists (or has a usable hash): the provided
+    ///         key is always hashed, and always compared in fixed time (against <see cref="DummyHash" /> when
+    ///         there is nothing real to compare with), and the client list is always scanned in full. Without
+    ///         this, an unknown client name would return measurably sooner than a known one, letting a caller
+    ///         discover which client names exist. The comparison against the dummy can never authenticate:
+    ///         success additionally requires a matching client with a non-blank hash.
+    ///     </para>
     /// </remarks>
     public ClientConfig? Authenticate (string clientName, string rawKey, DyndnsConfig config)
     {
         if (string.IsNullOrWhiteSpace (clientName) || string.IsNullOrWhiteSpace (rawKey))
             return null;
 
-        ClientConfig? client =
-            config.Clients.FirstOrDefault (candidate => string.Equals (a: candidate.Name,
-                                                                       b: clientName,
-                                                                       comparisonType: StringComparison.OrdinalIgnoreCase));
+        // Scan every client (no early exit) so lookup time does not depend on where, or whether, the name matches.
+        ClientConfig? client = null;
 
-        if (client is null || string.IsNullOrWhiteSpace (client.KeyHash))
-            return null;
+        foreach (ClientConfig candidate in config.Clients)
+        {
+            if (client is null &&
+                string.Equals (a: candidate.Name, b: clientName, comparisonType: StringComparison.OrdinalIgnoreCase))
+                client = candidate;
+        }
 
-        string providedHash = ComputeSha256 (rawKey);
+        bool   hasUsableHash = client is not null && !string.IsNullOrWhiteSpace (client.KeyHash);
+        string providedHash  = ComputeSha256 (rawKey);
+        // Normalize in both cases so the string work is identical on every path.
+        string expectedHash  = (hasUsableHash ? client!.KeyHash : DummyHash).Trim ().ToLowerInvariant ();
 
-        return CryptographicOperations.FixedTimeEquals (left: Encoding.UTF8.GetBytes (providedHash),
-                                                        right: Encoding.UTF8.GetBytes (client.KeyHash.Trim ().ToLowerInvariant ()))
-                   ? client
-                   : null;
+        bool hashesMatch = CryptographicOperations.FixedTimeEquals (left: Encoding.UTF8.GetBytes (providedHash),
+                                                                    right: Encoding.UTF8.GetBytes (expectedHash));
+
+        return hasUsableHash && hashesMatch ? client : null;
     }
 
     /// <summary>

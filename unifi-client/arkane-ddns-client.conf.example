@@ -1,11 +1,12 @@
 # Configuration file for arkane-ddns-client
 # 
-# Copy this file to /usr/local/etc/arkane-ddns-client.conf and update the values
-# for your environment. Keep this file readable only by root (chmod 600) since
-# it contains your raw API key.
+# Copy this file to /data/arkane-ddns-client/arkane-ddns-client.conf and update the values
+# for your environment. (install.sh does this for you.) /data survives Unifi software updates;
+# /usr/local does not. Keep this file readable only by root (chmod 600) since it contains
+# your raw API key.
 
 [api]
-# Azure DDNS API endpoint base URL (WITHOUT the /api/update path - it's added automatically)
+# Azure DDNS API endpoint base URL, https only (WITHOUT the /api/nic/update path - it's added automatically)
 endpoint = https://your-function-app.azurewebsites.net
 
 # Client name configured in Azure DDNS config/dyndns.json

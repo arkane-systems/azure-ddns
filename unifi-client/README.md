@@ -8,7 +8,7 @@ The client:
 1. **Discovers public IPs** by parsing the WAN interface (e.g., `eth1`) for global unicast IPv4 and IPv6 addresses
 2. **Caches the last known IPs** in `/var/cache/arkane-ddns-client/cache.json`
 3. **Detects changes** by comparing current addresses to cached values
-4. **Updates DNS** by calling the Azure DDNS API (`/api/update` endpoint) when addresses change
+4. **Updates DNS** by calling the Azure DDNS API (DynDNS v2 `/api/nic/update` endpoint, HTTP Basic auth) when addresses change
 5. **Runs on schedule** via a systemd timer (every 5 minutes by default)
 6. **Logs minimally** to the system journal for troubleshooting
 
@@ -72,7 +72,7 @@ Once files are installed, log into your gateway and edit the configuration:
 
 ```bash
 ssh root@192.168.1.1
-vi /usr/local/etc/arkane-ddns-client.conf
+vi /data/arkane-ddns-client/arkane-ddns-client.conf
 ```
 
 Set your values:
@@ -101,14 +101,14 @@ debug = false
 Run the script manually to verify configuration:
 
 ```bash
-sudo /usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf
+sudo python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf
 ```
 
 
 Run the script manually to verify configuration:
 
 ```bash
-sudo /usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf
+sudo python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf
 ```
 
 Check for errors or success in the output. Enable debug mode in the config to see more detail:
@@ -196,13 +196,39 @@ sudo bash /root/arkane-ddns-client-staging/install.sh /path/to/files
 
 **What it does:**
 
-1. Creates `/var/cache/arkane-ddns-client/` with restricted permissions
-2. Copies Python script to `/usr/local/bin/` and makes it executable
-3. Copies config template to `/usr/local/etc/` (if not already present)
-4. Copies systemd units to `/etc/systemd/system/`
-5. Copies documentation to `/usr/local/etc/arkane-ddns-client/`
+1. Creates `/data/arkane-ddns-client/` (mode 700) and copies the Python script and the documentation into it
+2. Creates the configuration file there: keeps an existing one, **migrates one from the old `/usr/local/etc/` location**, or installs the template
+3. Removes any files left by earlier versions under `/usr/local/`
+4. Creates `/var/cache/arkane-ddns-client/` (mode 700) for the cache
+5. Copies systemd units to `/etc/systemd/system/`
 6. Reloads the systemd daemon
 7. Cleans up the staging directory (if applicable)
+
+It refuses to run if `/data` does not exist (that would not be a Unifi OS device).
+
+### Where files live (and why)
+
+Unifi software updates rebuild the gateway's root filesystem. Anything outside the persistent areas is wiped,
+including `/usr/local`, where earlier versions of this client installed itself. `/data` and `/etc` persist
+(this is the convention the community UniFi OS persistence tooling, such as
+[unifi-utilities](https://github.com/unifi-utilities/unifios-utilities), relies on), so:
+
+| What | Where | Survives a Unifi update? |
+|---|---|---|
+| Script, configuration (contains your API key), documentation | `/data/arkane-ddns-client/` | Yes |
+| systemd service and timer units | `/etc/systemd/system/` | Yes |
+| Last-known-address cache | `/var/cache/arkane-ddns-client/` | Not guaranteed, and it does not need to |
+
+The cache is disposable: if it is lost, the next run simply reports the current address again (the server
+answers `nochg` if nothing changed). The directory is recreated automatically, both by systemd
+(`CacheDirectory=` in the service unit) and by the script itself when run by hand.
+
+### Upgrading from an earlier install (under `/usr/local`)
+
+Copy the new files over and run `install.sh` again (`copy-to-gateway.sh <gateway> --install` does both). It moves
+your existing configuration to `/data/arkane-ddns-client/`, removes the old copies, and rewrites the units to point at
+the new location. The timer keeps running; nothing needs to be re-enabled. If a Unifi update has already wiped
+`/usr/local`, your configuration is gone with it and `install.sh` will install the template for you to edit again.
 
 ## Configuration Reference
 
@@ -210,7 +236,7 @@ sudo bash /root/arkane-ddns-client-staging/install.sh /path/to/files
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `endpoint` | Yes | Base URL of Azure DDNS function app (e.g., `https://my-func.azurewebsites.net`). Path `/api/update` is appended by the client. |
+| `endpoint` | Yes | Base URL of Azure DDNS function app (e.g., `https://my-func.azurewebsites.net`). Must be `https://`. Path `/api/nic/update` is appended by the client. |
 | `client` | Yes | Client name configured in the function app's `config/dyndns.json`. |
 | `key` | Yes | Raw (unhashed) client key. Must match the configured client's key. **Keep this secure!** |
 | `zone` | Yes | DNS zone name (e.g., `example.com`). |
@@ -236,13 +262,13 @@ sudo bash /root/arkane-ddns-client-staging/install.sh /path/to/files
 
 The script uses `ip addr show <interface>` to enumerate addresses on the WAN interface. It extracts:
 - **IPv4**: First global-scope address (not link-local, not loopback)
-- **IPv6**: First global-scope address that is not link-local (`fe80::`) and not from the documentation range (`2001:db8::`)
+- **IPv6**: First stable global unicast address (`2000::/3`, i.e. what your ISP assigned). Unique-local (`fc00::/7`), link-local, temporary privacy addresses, deprecated/tentative addresses and the documentation prefixes (`2001:db8::/32`, `3fff::/20`) are skipped
 
 If multiple global addresses exist, only the first of each family is used. This is suitable for most Unifi gateway deployments.
 
 ### Change Detection
 
-The script caches the last-known IPv4 and IPv6 addresses in `/var/cache/arkane-ddns-client/cache.json`. On each run:
+The script caches the last-known IPv4 and IPv6 addresses in `/var/cache/arkane-ddns-client/cache.json` (recreated if missing; rewritten only when it changes). On each run:
 1. Read current addresses from the interface
 2. Load the cache
 3. Compare: if different and enabled, call the API
@@ -250,13 +276,20 @@ The script caches the last-known IPv4 and IPv6 addresses in `/var/cache/arkane-d
 
 ### API Calls
 
-When an address changes, the script calls the Azure DDNS `/api/update` endpoint with query parameters:
+When an address changes, the script calls the Azure DDNS DynDNS v2 endpoint using HTTP Basic authentication
+(client name as user name, raw key as password):
 
 ```
-GET https://<endpoint>/api/update?client=<name>&key=<key>&zone=<zone>&name=<record>&ip=<ip>
+GET https://<endpoint>/api/nic/update?hostname=<record>.<zone>&myip=<ip>
+Authorization: Basic base64(<name>:<key>)
 ```
 
-The API response is checked for `OK:` (success) or `ERROR:` (failure). Only successful updates modify the cache.
+The key is never placed in the URL or on the `curl` command line (so it does not appear in the process list):
+`curl` reads its URL and credentials from standard input. The call uses `--proto =https` (plain HTTP is refused) and
+has connect and overall timeouts.
+
+The API response is checked for `good <ip>` or `nochg <ip>` (success); anything else (`badauth`, `nohost`, `911`, or a
+`curl` error) is a failure. Only successful updates modify the cache.
 
 ### Logging
 
@@ -322,11 +355,11 @@ Run with debug enabled:
 
 ```bash
 # Edit config temporarily
-sudo vi /usr/local/etc/arkane-ddns-client.conf
+sudo vi /data/arkane-ddns-client/arkane-ddns-client.conf
 # Set: debug = true
 
 # Run manually
-sudo /usr/local/bin/arkane-ddns-client.py
+sudo python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf
 
 # Check output
 sudo journalctl -u arkane-ddns-client -n 50
@@ -367,14 +400,15 @@ sudo rm /var/cache/arkane-ddns-client/cache.json
 If you want to test the API endpoint directly without the client:
 
 ```bash
-# IPv4 update
-curl "https://your-func.azurewebsites.net/api/update?client=my-client&key=my-key&zone=example.com&name=home&ip=203.0.113.42"
+# IPv4 update (curl prompts for nothing; -u sends HTTP Basic auth. Note: the key is visible in your shell history
+# and process list while this runs, so use a throwaway key or a trusted workstation.)
+curl -u my-client:my-key "https://your-func.azurewebsites.net/api/nic/update?hostname=home.example.com&myip=203.0.113.42"
 
 # IPv6 update
-curl "https://your-func.azurewebsites.net/api/update?client=my-client&key=my-key&zone=example.com&name=home&ip=2001:db8::1"
+curl -u my-client:my-key "https://your-func.azurewebsites.net/api/nic/update?hostname=home.example.com&myip=2001:db8::1"
 
-# Expected success response: "OK: ..."
-# Expected auth failure: "ERROR: ..."
+# Expected success response: "good <ip>"
+# Expected auth failure: "badauth" (HTTP 401); unknown or unauthorized host: "nohost"
 ```
 
 ## Performance & Resource Usage
@@ -387,7 +421,7 @@ The script is lightweight:
 
 ## Security Notes
 
-1. **Config file permissions**: Always keep `/usr/local/etc/arkane-ddns-client.conf` readable only by root (`chmod 600`). It contains your raw API key.
+1. **Config file permissions**: Always keep `/data/arkane-ddns-client/arkane-ddns-client.conf` readable only by root (`chmod 600`). It contains your raw API key.
 2. **Key in logs**: The script never logs the raw key, but take care not to enable system-wide debugging or share journal output carelessly.
 3. **HTTPS only**: The script always uses HTTPS for API calls. Do not use unencrypted HTTP endpoints in production.
 

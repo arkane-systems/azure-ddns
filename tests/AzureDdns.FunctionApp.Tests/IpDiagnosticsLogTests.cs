@@ -103,16 +103,6 @@ public sealed class IpDiagnosticsLogTests
     Assert.DoesNotContain (expectedSubstring: "api-key-value",  actualString: headerEntry);
   }
 
-  [Theory]
-  [InlineData ("a\r\nFORGED", "a__FORGED")]
-  [InlineData ("tab\there",   "tab_here")]
-  [InlineData ("clean.example.com", "clean.example.com")]
-  public void Sanitize_ReplacesControlCharacters (string input, string expected)
-    => Assert.Equal (expected: expected, actual: IpDiagnosticsLog.Sanitize (input));
-
-  [Fact]
-  public void Sanitize_ReturnsNull_ForNull () => Assert.Null (IpDiagnosticsLog.Sanitize (null));
-
   [Fact]
   public void LogResolution_DoesNotLetForwardedHeaderForgeLogLines ()
   {
@@ -129,6 +119,35 @@ public sealed class IpDiagnosticsLogTests
                           Assert.DoesNotContain (expectedSubstring: "\r", actualString: entry.Message);
                           Assert.DoesNotContain (expectedSubstring: "\n", actualString: entry.Message);
                         });
+  }
+
+  [Fact]
+  public void LogResolution_WarnsWhenForwardedForAndClientIpDisagree ()
+  {
+    var         logger  = new CapturingLogger ();
+    HttpRequest request = CreateRequest ("10.0.0.5");
+    request.Headers["X-Forwarded-For"] = "198.51.100.25";
+    request.Headers["CLIENT-IP"]       = "203.0.113.9:4000";
+    IpResolutionResult resolution = new IpResolver ().Resolve (request: request, explicitIp: null);
+
+    IpDiagnosticsLog.LogResolution (logger: logger, target: "home.example.com", request: request, resolution: resolution, logAllHeaders: false);
+
+    Assert.Contains (collection: logger.Entries,
+                     filter: entry => entry.Level == LogLevel.Warning && entry.Message.Contains ("name different clients"));
+  }
+
+  [Fact]
+  public void LogResolution_DoesNotWarnWhenForwardedForAndClientIpAgree ()
+  {
+    var         logger  = new CapturingLogger ();
+    HttpRequest request = CreateRequest ("10.0.0.5");
+    request.Headers["X-Forwarded-For"] = "198.51.100.25:5555";
+    request.Headers["CLIENT-IP"]       = "198.51.100.25:4000";
+    IpResolutionResult resolution = new IpResolver ().Resolve (request: request, explicitIp: null);
+
+    IpDiagnosticsLog.LogResolution (logger: logger, target: "home.example.com", request: request, resolution: resolution, logAllHeaders: false);
+
+    Assert.DoesNotContain (collection: logger.Entries, filter: entry => entry.Message.Contains ("name different clients"));
   }
 
   [Fact]

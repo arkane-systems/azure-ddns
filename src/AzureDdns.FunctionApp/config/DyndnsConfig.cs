@@ -138,4 +138,12 @@ public sealed class RuntimeSettings
     ///   Enables temporary logging of all incoming request headers for IP diagnostics.
     /// </summary>
     public bool LogAllRequestHeadersForIpDiagnostics { get; set; }
+
+    /// <summary>
+    ///   Whether the documentation address ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32,
+    ///   3fff::/20) may be published. Defaults to <see langword="true" />, which the smoke test relies on; set the
+    ///   <c>ALLOW_DOCUMENTATION_ADDRESSES</c> app setting to <c>false</c> to refuse them like other unroutable
+    ///   addresses. See <see cref="Services.AddressPolicy" />.
+    /// </summary>
+    public bool AllowDocumentationAddresses { get; set; } = true;
 }

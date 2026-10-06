@@ -4,7 +4,7 @@
     <File Path="infra/main.bicep" />
     <File Path="infra/main.parameters.json" />
     <File Path="README.md" />
-    <File Path="scripts/smoke-test.ps1" />
+    <File Path="scripts/smoke-test-dyndns.ps1" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj" />

@@ -130,8 +130,8 @@ else
 fi
 
 echo "Next steps on gateway:"
-echo "  1. Edit /usr/local/etc/arkane-ddns-client.conf with your settings"
-echo "  2. Test: sudo /usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf"
+echo "  1. Edit /data/arkane-ddns-client/arkane-ddns-client.conf with your settings"
+echo "  2. Test: sudo python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf"
 echo "  3. Enable: sudo systemctl enable arkane-ddns-client.timer"
 echo "  4. Start: sudo systemctl start arkane-ddns-client.timer"
 echo ""

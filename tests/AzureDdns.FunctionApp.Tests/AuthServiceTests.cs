@@ -107,4 +107,83 @@ public sealed class AuthServiceTests
 
         Assert.True (result);
     }
+
+    [Fact]
+    public void Authenticate_ReturnsNull_ForUnknownClient ()
+    {
+        var config = new DyndnsConfig
+        {
+            Clients = [new ClientConfig { Name = "home-router", KeyHash = AuthService.ComputeSha256 ("secret-key"), },],
+        };
+
+        ClientConfig? result = this._authService.Authenticate (clientName: "no-such-client", rawKey: "secret-key", config: config);
+
+        Assert.Null (result);
+    }
+
+    [Fact]
+    public void Authenticate_ReturnsNull_ForNoConfiguredClients ()
+    {
+        ClientConfig? result = this._authService.Authenticate (clientName: "home-router", rawKey: "secret-key", config: new DyndnsConfig ());
+
+        Assert.Null (result);
+    }
+
+    [Theory]
+    [InlineData ("")]
+    [InlineData ("   ")]
+    public void Authenticate_ReturnsNull_WhenClientHasBlankHash (string keyHash)
+    {
+        var config = new DyndnsConfig
+        {
+            Clients = [new ClientConfig { Name = "home-router", KeyHash = keyHash, },],
+        };
+
+        ClientConfig? result = this._authService.Authenticate (clientName: "home-router", rawKey: "secret-key", config: config);
+
+        Assert.Null (result);
+    }
+
+    [Fact]
+    public void Authenticate_ReturnsNull_WhenKeyIsTheDummyComparisonValue ()
+    {
+        // The all-zero hash is only ever a comparison placeholder; no key hashes to it and it must never authenticate.
+        var config = new DyndnsConfig
+        {
+            Clients = [new ClientConfig { Name = "home-router", KeyHash = new string ('0', 64), },],
+        };
+
+        ClientConfig? result = this._authService.Authenticate (clientName: "home-router", rawKey: "anything", config: config);
+
+        Assert.Null (result);
+    }
+
+    [Fact]
+    public void Authenticate_MatchesClientNameAndHashFormattingLeniently ()
+    {
+        var config = new DyndnsConfig
+        {
+            Clients = [new ClientConfig { Name = "Home-Router", KeyHash = "  " + AuthService.ComputeSha256 ("secret-key").ToUpperInvariant () + " ", },],
+        };
+
+        ClientConfig? result = this._authService.Authenticate (clientName: "home-ROUTER", rawKey: "secret-key", config: config);
+
+        Assert.NotNull (result);
+    }
+
+    [Fact]
+    public void Authenticate_ReturnsTheFirstClientWithAMatchingName_WhenNamesRepeat ()
+    {
+        var config = new DyndnsConfig
+        {
+            Clients =
+            [
+                new ClientConfig { Name = "home-router", KeyHash = AuthService.ComputeSha256 ("first-key"), },
+                new ClientConfig { Name = "home-router", KeyHash = AuthService.ComputeSha256 ("second-key"), },
+            ],
+        };
+
+        Assert.NotNull (this._authService.Authenticate (clientName: "home-router", rawKey: "first-key", config: config));
+        Assert.Null (this._authService.Authenticate (clientName: "home-router", rawKey: "second-key", config: config));
+    }
 }

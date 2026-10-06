@@ -14,7 +14,7 @@ The two phases can be run independently, which allows infrastructure and app cod
 ### Required tooling
 
 - Azure CLI (`az`)
-- .NET 8 SDK
+- .NET 10 SDK
 - PowerShell (for smoke testing)
 
 ### Authentication
@@ -29,7 +29,7 @@ az account set --subscription <subscription-id>
 ## 1) Deployment target and assumptions
 
 - Azure Functions Flex Consumption
-- .NET 8 isolated worker
+- .NET 10 isolated worker
 - Function app configuration file packaged with app (`config/dyndns.json`)
 - Azure DNS zones already exist (often in a shared DNS resource group)
 - Function app uses system-assigned managed identity for Azure DNS updates
@@ -44,7 +44,7 @@ From `infra/main.bicep`:
 4. Application Insights (workspace-based)
 5. Flex Consumption plan (`FC1`)
 6. Function App (Linux, `dotnet-isolated` runtime)
-7. Storage Blob Data Owner role assignment for function managed identity on storage account
+7. Storage Blob Data Owner and Storage Table Data Contributor role assignments for the function managed identity on the storage account (the host uses identity-based `AzureWebJobsStorage`; the account has shared-key access disabled)
 8. Optional DNS Zone Contributor role assignments per DNS zone (when `dnsZoneNames` is populated)
 
 ## 3) Parameter reference (`infra/main.parameters.json`)
@@ -79,8 +79,9 @@ These are set in `siteConfig.appSettings` during deployment:
 - `DNS_SUBSCRIPTION_ID`
 - `DNS_RESOURCE_GROUP`
 - `CONFIG_PATH` (`config/dyndns.json`)
-- `AzureWebJobsStorage`
+- `AzureWebJobsStorage__accountName` (the storage account name) and `AzureWebJobsStorage__credential` (`managedidentity`); there must be **no** `AzureWebJobsStorage` connection string
 - `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
+- `ALLOW_DOCUMENTATION_ADDRESSES` (expected `true` unless you deliberately refuse documentation ranges)
 
 No manual portal configuration is required for these values in normal deployments.
 
@@ -136,16 +137,17 @@ azd up
 
 Perform from a client/network path representing your DDNS caller:
 
-1. Valid IPv4 update request.
+1. Valid IPv4 update request to `/api/nic/update` (`scripts/smoke-test-dyndns.ps1` covers 1-2).
 2. Valid IPv6 update request.
-3. Invalid key request returns `401`.
-4. Unauthorized record request returns `403`.
-5. Request for an authorized record in a zone missing from `dyndns.json` returns `400` (unauthenticated/unauthorized callers get `401`/`403` regardless of zone).
+3. Invalid key request returns `401` with body `badauth`.
+4. Unauthorized or unknown hostname returns `200` with body `nohost`.
+5. A plain `http://` request is refused or redirected (the Function App has `httpsOnly` enabled).
+6. Repeating an update with the same address returns `nochg <ip>` and makes no DNS write.
 
 Expected behavior:
 
 - `A` and `AAAA` updates remain independent.
-- Responses are plain-text `OK:`/`ERROR:`.
+- Responses are DynDNS v2 plain-text codes (`good <ip>`, `nochg <ip>`, `badauth`, `nohost`, `911`).
 
 ### C. Logging and security validation
 
@@ -157,11 +159,10 @@ Expected behavior:
 
 ## 9) Troubleshooting quick notes
 
-- `ERROR: zone not configured` -> zone key missing in `dyndns.json` (only returned after authentication and authorization succeed).
-- `ERROR: invalid credentials` -> client name/hash mismatch.
-- `ERROR: dns update failed` -> missing/incorrect RBAC or DNS resource reference issues.
-- `ERROR: server configuration invalid` -> missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.).
-- `503` (`ERROR: configuration unavailable` on `/api/update`; `911` on `/api/nic/update`) -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; check the app log for the path and parse error.
+- `badauth` (401) -> client name/hash mismatch, or no usable `Authorization: Basic` header.
+- `nohost` -> hostname not under a configured zone, or the client is not allowed to update that record.
+- `911` (200) -> server-side failure: missing/incorrect RBAC or DNS resource reference, managed identity unavailable, missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.), an unusable `myip`, or an address refused as not publicly routable (private, loopback, link-local, ULA, ...); check the app log.
+- `911` with HTTP `503` -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; check the app log for the path and parse error.
 
 ## 10) Suggested ongoing operations
 

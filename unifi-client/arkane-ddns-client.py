@@ -4,7 +4,7 @@
 arkane-ddns-client: DDNS client for Unifi gateways with IPv4/IPv6 support.
 
 Discovers public IPv4 and IPv6 addresses from a WAN interface, detects changes,
-and calls the Azure DDNS API endpoint to update records.
+and calls the Azure DDNS API (DynDNS v2 endpoint, HTTP Basic auth) to update records.
 """
 
 import os
@@ -14,12 +14,14 @@ import json
 import re
 import socket
 import syslog
+import urllib
 from ConfigParser import SafeConfigParser
 
 CACHE_DIR = '/var/cache/arkane-ddns-client'
 CACHE_FILE = os.path.join(CACHE_DIR, 'cache.json')
 DEFAULT_INTERFACE = 'eth1'
-API_ENDPOINT_TEMPLATE = '{endpoint}/api/update'
+API_PATH = '/api/nic/update'
+CURL_TIMEOUT_SECONDS = '30'
 
 
 def log(level, message):
@@ -66,14 +68,63 @@ def read_cache():
         return {}
 
 
-def write_cache(cache):
-    """Write cached IPs to file."""
+def write_cache(cache, previous_cache=None):
+    """Write cached IPs to file.
+
+    The cache directory is recreated if it has gone missing (it is disposable: losing it only costs one
+    redundant update). The write is skipped when nothing changed since `previous_cache` was read, which
+    avoids rewriting flash storage every few minutes, and is done via a temporary file and rename so a
+    crash can never leave a truncated cache behind.
+    """
+    if previous_cache is not None and cache == previous_cache and os.path.exists(CACHE_FILE):
+        debug('Cache unchanged; not rewriting')
+        return
+
+    if not ensure_cache_dir():
+        return
+
+    tmp_file = CACHE_FILE + '.tmp'
     try:
-        with open(CACHE_FILE, 'w') as f:
+        with open(tmp_file, 'w') as f:
             json.dump(cache, f)
-            debug('Wrote cache: {}'.format(cache))
-    except IOError as e:
+        os.rename(tmp_file, CACHE_FILE)
+        debug('Wrote cache: {}'.format(cache))
+    except (IOError, OSError) as e:
         log('error', 'Failed to write cache file {}: {}'.format(CACHE_FILE, e))
+
+
+# Address flags (as printed by `ip addr`) that mean an address must not be published: privacy-extension
+# temporary addresses change constantly and are not the host's stable address, and deprecated/tentative/
+# dadfailed addresses are not (or are no longer) valid for new connections.
+UNPUBLISHABLE_IPV6_FLAGS = ('temporary', 'deprecated', 'tentative', 'dadfailed')
+
+
+def ipv6_skip_reason(addr, flags):
+    """Return why an IPv6 address must not be published, or None if it should be.
+
+    Only a stable, ISP-assigned global unicast address (GUA, 2000::/3) is published. That excludes
+    unique-local (fc00::/7), link-local (fe80::/10), loopback and multicast addresses, address-flag cases
+    such as temporary privacy addresses, and the documentation prefixes. (Python 2.7 has no ipaddress module,
+    so the first two groups are examined directly.)
+    """
+    for flag in UNPUBLISHABLE_IPV6_FLAGS:
+        if flag in flags:
+            return 'flagged {}'.format(flag)
+
+    groups = addr.lower().split(':')
+    try:
+        first = int(groups[0], 16) if groups[0] else 0
+        second = int(groups[1], 16) if len(groups) > 1 and groups[1] else 0
+    except ValueError:
+        return 'not a parseable address'
+
+    if (first & 0xe000) != 0x2000:
+        return 'not global unicast (2000::/3), e.g. unique-local or link-local'
+    if first == 0x2001 and second == 0x0db8:
+        return 'documentation range 2001:db8::/32'
+    if first == 0x3fff and second < 0x1000:
+        return 'documentation range 3fff::/20'
+    return None
 
 
 def get_interface_addresses(interface):
@@ -103,13 +154,13 @@ def get_interface_addresses(interface):
             debug('Found global IPv4: {}'.format(ipv4))
             continue
         
-        # IPv6: look for "inet6 <address>/prefix scope global"
-        ipv6_match = re.search(r'inet6\s+(\S+)/\d+\s+.*scope\s+global', line)
+        # IPv6: look for "inet6 <address>/prefix scope global [flags...]"
+        ipv6_match = re.search(r'inet6\s+(\S+)/\d+\s+.*scope\s+global(.*)$', line)
         if ipv6_match and ipv6 is None:
-            # Skip link-local (fe80::) and documentation ranges (2001:db8::)
             addr = ipv6_match.group(1)
-            if addr.startswith('fe80:') or addr.startswith('2001:db8:'):
-                debug('Skipped non-public IPv6: {}'.format(addr))
+            reason = ipv6_skip_reason(addr, ipv6_match.group(2).split())
+            if reason:
+                debug('Skipped IPv6 {}: {}'.format(addr, reason))
                 continue
             ipv6 = addr
             debug('Found global IPv6: {}'.format(ipv6))
@@ -118,41 +169,59 @@ def get_interface_addresses(interface):
     return ipv4, ipv6
 
 
+def build_hostname(zone, record):
+    """Return the fully-qualified hostname for a zone and record ('@' means the zone apex)."""
+    if record in ('', '@'):
+        return zone
+    return '{}.{}'.format(record, zone)
+
+
+def curl_quote(value):
+    """Quote a value for a curl config file (backslash and double quote are escaped)."""
+    return '"{}"'.format(value.replace('\\', '\\\\').replace('"', '\\"'))
+
+
 def call_api(api_base_url, client, key, zone, record, ip_address, ip_version):
-    """Call the DDNS API with an IP update using curl."""
-    # Construct full API endpoint URL with path
-    endpoint = api_base_url.rstrip('/') + '/api/update'
-    
-    url = '{endpoint}?client={client}&key={key}&zone={zone}&name={record}&ip={ip}'.format(
-        endpoint=endpoint,
-        client=client,
-        key=key,
-        zone=zone,
-        record=record,
-        ip=ip_address
-    )
-    
-    debug('Calling API: {} (hiding key in logs)'.format(url.replace(key, '***')))
-    
+    """Call the DDNS API (DynDNS v2 protocol) with an IP update using curl.
+
+    The key is sent as the HTTP Basic auth password, and curl reads its settings from stdin
+    (-K -), so the key never appears in the process list or in any URL.
+    """
+    hostname = build_hostname(zone, record)
+    url = '{endpoint}{path}?hostname={hostname}&myip={ip}'.format(
+        endpoint=api_base_url.rstrip('/'),
+        path=API_PATH,
+        hostname=urllib.quote(hostname, safe=''),
+        ip=urllib.quote(ip_address, safe=''))
+
+    debug('Calling API: {} (as client {})'.format(url, client))
+
+    curl_config = 'url = {}\nuser = {}\n'.format(
+        curl_quote(url), curl_quote('{}:{}'.format(client, key)))
+
     try:
-        response = subprocess.check_output(['curl', '-s', url], stderr=subprocess.STDOUT)
-        debug('API response: {}'.format(response))
-        
-        # Check for "OK:" in response (success) or "ERROR:" (failure)
-        if 'OK:' in response:
-            log('info', 'Successfully updated {} record {} to {}'.format(
-                ip_version, record, ip_address))
-            return True
-        else:
-            log('error', 'API returned error for {} update of {}: {}'.format(
-                ip_version, record, response))
-            return False
-    except subprocess.CalledProcessError as e:
-        log('error', 'API call failed: {}'.format(e.output))
-        return False
+        process = subprocess.Popen(
+            ['curl', '-s', '--proto', '=https', '--connect-timeout', '10',
+             '--max-time', CURL_TIMEOUT_SECONDS, '-K', '-'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        response, _ = process.communicate(curl_config)
     except OSError as e:
         log('error', 'Command "curl" not found or failed: {}'.format(e))
         return False
+
+    response = response.strip()
+    debug('API response: {}'.format(response))
+
+    # DynDNS v2: "good <ip>" (changed) or "nochg <ip>" (unchanged) mean success; anything else is a failure
+    # (badauth, nohost, 911, or a curl error message).
+    if process.returncode == 0 and (response.startswith('good') or response.startswith('nochg')):
+        log('info', 'Successfully updated {} record {} to {}'.format(
+            ip_version, hostname, ip_address))
+        return True
+
+    log('error', 'API returned error for {} update of {} (curl exit {}): {}'.format(
+        ip_version, hostname, process.returncode, response))
+    return False
 
 
 def main():
@@ -184,8 +253,10 @@ def main():
         api_endpoint, client_name, zone, record, wan_interface))
     
     # Ensure cache directory exists
+    # The cache is disposable: if its directory cannot be created, carry on without one (every run then
+    # simply reports the current address; the server answers "nochg" when nothing has changed).
     if not ensure_cache_dir():
-        sys.exit(1)
+        log('error', 'Continuing without a cache; the cache directory could not be created')
     
     # Get current IPs
     current_ipv4, current_ipv6 = get_interface_addresses(wan_interface)
@@ -233,7 +304,7 @@ def main():
             debug('No valid IPv6 address found')
     
     # Write updated cache
-    write_cache(new_cache)
+    write_cache(new_cache, cache)
     
     if updated:
         log('info', 'Update complete: changes detected and API calls made')
@@ -247,7 +318,7 @@ if __name__ == '__main__':
     syslog.openlog('arkane-ddns-client', syslog.LOG_PID, syslog.LOG_USER)
     
     # Get config file path from argument or environment
-    CONFIG_FILE = sys.argv[1] if len(sys.argv) > 1 else '/usr/local/etc/arkane-ddns-client.conf'
+    CONFIG_FILE = sys.argv[1] if len(sys.argv) > 1 else '/data/arkane-ddns-client/arkane-ddns-client.conf'
     ENABLE_DEBUG = False
     
     try:

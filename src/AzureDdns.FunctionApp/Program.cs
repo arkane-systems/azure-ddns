@@ -48,6 +48,14 @@ IHost host = new HostBuilder ()
                                                                               .GetEnvironmentVariable ("LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS"),
                                                                              result: out bool enabled) &&
                                                               enabled;
+
+                                                            // Permissive by default: only an explicit, parseable "false" turns the documentation
+                                                            // ranges off (a missing or unparseable value keeps them allowed).
+                                                            options.AllowDocumentationAddresses =
+                                                              !bool.TryParse (value: Environment
+                                                                              .GetEnvironmentVariable ("ALLOW_DOCUMENTATION_ADDRESSES"),
+                                                                             result: out bool allowDocumentation) ||
+                                                              allowDocumentation;
                                                           });
 
                                   // Service registrations remain singleton because services are stateless or config-backed.
@@ -56,6 +64,7 @@ IHost host = new HostBuilder ()
                                   _ = services.AddSingleton<IFqdnResolver, FqdnResolver> ();
                                   _ = services.AddSingleton<IIpResolver, IpResolver> ();
                                   _ = services.AddSingleton<IDnsUpdateService, DnsUpdateService> ();
+                                  _ = services.AddSingleton<IDdnsUpdateCoordinator, DdnsUpdateCoordinator> ();
                                 })
             .Build ();
 

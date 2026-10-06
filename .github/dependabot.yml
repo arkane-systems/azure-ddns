@@ -1,0 +1,27 @@
+# Keeps NuGet packages and GitHub Actions up to date by opening pull requests.
+# The CI workflow (build, test, Bicep compile, CodeQL) runs on each of them.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directories:
+      - /src/AzureDdns.FunctionApp
+      - /tests/AzureDdns.FunctionApp.Tests
+    schedule:
+      interval: weekly
+    groups:
+      azure-functions:
+        patterns:
+          - "Microsoft.Azure.Functions.*"
+          - "Azure.Functions.*"
+      azure-sdk:
+        patterns:
+          - "Azure.*"
+      test-tooling:
+        patterns:
+          - "Microsoft.NET.Test.Sdk"
+          - "xunit*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -56,33 +56,35 @@ Confirm these are present on the Function App:
 - `DNS_SUBSCRIPTION_ID`
 - `DNS_RESOURCE_GROUP`
 - `CONFIG_PATH` (expected `config/dyndns.json`)
-- `AzureWebJobsStorage`
+- `AzureWebJobsStorage__accountName` and `AzureWebJobsStorage__credential` (`managedidentity`) — no `AzureWebJobsStorage` connection string
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
 - `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
+- `ALLOW_DOCUMENTATION_ADDRESSES` (expected `true` unless you deliberately refuse documentation ranges)
 
 ## 5) Verify identity and RBAC
 
 - Function App system-assigned identity must exist.
-- Storage role assignment should exist for deployment/runtime storage access.
+- Storage role assignments should exist for the function identity on the storage account: Storage Blob Data Owner (host + deployment) and Storage Table Data Contributor (host diagnostics). Role changes can take a few minutes to take effect; a host that cannot reach storage at first start usually recovers once they do.
 - DNS role assignment behavior:
   - if `dnsZoneNames` is empty: no automatic zone-scoped DNS assignments are created
   - if `dnsZoneNames` is populated: `DNS Zone Contributor` is assigned per listed zone
 
 ## 6) Smoke test DDNS endpoint
 
-Contract:
+Run `scripts/smoke-test-dyndns.ps1` (see README, "Smoke test script"). Contract:
 
 ```text
-GET /api/update?client=<name>&key=<raw-key>&zone=<zone>&name=<record>[&ip=<address>]
+GET /api/nic/update?hostname=<fqdn>[&myip=<address>]      (Authorization: Basic client:key)
 ```
 
 Expected checks:
 
-1. valid IPv4 request updates only `A`
-2. valid IPv6 request updates only `AAAA`
-3. bad key returns `401`
-4. unauthorized record returns `403`
-5. authorized record in a zone missing from `dyndns.json` returns `400` (an unauthenticated or unauthorized caller gets `401`/`403` instead, whatever the zone)
+1. valid IPv4 request updates only `A` (`good <ip>`)
+2. valid IPv6 request updates only `AAAA` (`good <ip>`)
+3. bad key returns `401` with body `badauth`
+4. unauthorized or unknown hostname returns `200` with body `nohost`
+5. plain `http://` requests are refused or redirected (the app is HTTPS-only)
+6. repeating the same update returns `nochg <ip>` (no write is made)
 
 ## 7) Rotate a client key hash
 
@@ -93,8 +95,7 @@ Expected checks:
 
 ## 8) Common failures
 
-- `ERROR: invalid credentials` -> client key hash mismatch.
-- `ERROR: zone not configured` -> missing zone entry in `dyndns.json` (only returned to an authenticated client authorized for that zone/record).
-- `ERROR: dns update failed` -> DNS RBAC/scope issue or DNS resource lookup issue.
-- `ERROR: server configuration invalid` -> missing `DNS_SUBSCRIPTION_ID` or `DNS_RESOURCE_GROUP`.
-- `503` (`ERROR: configuration unavailable` on `/api/update`; `911` on `/api/nic/update`) -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; the app log names the path and parse error.
+- `badauth` (401) -> client name/key mismatch, or no usable `Authorization: Basic` header.
+- `nohost` -> hostname not under a configured zone, or the client is not allowed to update that record.
+- `911` (200) -> server-side failure: DNS RBAC/scope issue, DNS write failure, managed identity unavailable, missing `DNS_SUBSCRIPTION_ID`/`DNS_RESOURCE_GROUP`, an unusable `myip`, or an address refused as not publicly routable (private, loopback, link-local, ULA, ...; the log names the reason); the app log has the detail.
+- `911` with HTTP `503` -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; the app log names the path and parse error.

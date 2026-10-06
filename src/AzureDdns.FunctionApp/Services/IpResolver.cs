@@ -59,9 +59,12 @@ public sealed class IpResolver : IIpResolver
     ArgumentNullException.ThrowIfNull (request);
 
     IpResolutionDiagnostics diagnostics = CreateDiagnostics (request);
-    IPAddress? sourceIp = !diagnostics.KnownProxyHop
-                            ? diagnostics.RemoteIp
-                            : diagnostics.ForwardedForIp ?? diagnostics.ClientIp ?? diagnostics.RemoteIp;
+    // Addresses are normalized so an IPv4-mapped IPv6 address (::ffff:a.b.c.d, as dual-stack sockets
+    // report IPv4 peers) is treated as the IPv4 address it represents. Without this, such an address would
+    // select the AAAA record type and be written to DNS as a bogus IPv6 address.
+    IPAddress? sourceIp = Normalize (!diagnostics.KnownProxyHop
+                                       ? diagnostics.RemoteIp
+                                       : diagnostics.ForwardedForIp ?? diagnostics.ClientIp ?? diagnostics.RemoteIp);
 
     if (string.IsNullOrWhiteSpace (explicitIp))
       return new IpResolutionResult (EffectiveIp: sourceIp,
@@ -75,6 +78,8 @@ public sealed class IpResolver : IIpResolver
                                      ExplicitIpMismatch: false,
                                      Diagnostics: diagnostics);
 
+    parsedExplicitIp = Normalize (parsedExplicitIp)!;
+
     bool mismatch = sourceIp is not null && !sourceIp.Equals (parsedExplicitIp);
 
     return new IpResolutionResult (EffectiveIp: parsedExplicitIp,
@@ -82,6 +87,9 @@ public sealed class IpResolver : IIpResolver
                                    ExplicitIpMismatch: mismatch,
                                    Diagnostics: diagnostics);
   }
+
+  private static IPAddress? Normalize (IPAddress? address)
+    => address is { IsIPv4MappedToIPv6: true, } ? address.MapToIPv4 () : address;
 
   private static IpResolutionDiagnostics CreateDiagnostics (HttpRequest request)
   {
@@ -109,21 +117,51 @@ public sealed class IpResolver : IIpResolver
     return string.IsNullOrWhiteSpace (value) ? null : value;
   }
 
+  /// <summary>
+  ///   Picks the client address out of <c>X-Forwarded-For</c>: the <em>rightmost</em> entry that is not itself an
+  ///   internal (known proxy) address.
+  /// </summary>
+  /// <remarks>
+  ///   <para>
+  ///     Each proxy appends the address of the peer it received the request from, so the chain reads
+  ///     <c>client-supplied..., real client, proxy hops</c>. Everything to the left of the first entry added by
+  ///     our own infrastructure is whatever the caller chose to send, so the leftmost entry (the previous choice)
+  ///     can be forged by simply sending the header. Walking from the right, skipping our own internal hops, lands
+  ///     on the address the outermost trusted proxy actually saw.
+  ///   </para>
+  ///   <para>
+  ///     An entry that is not a parseable IP address stops the walk (<see langword="null" /> is returned): we cannot
+  ///     tell what is to the left of garbage, so nothing further left is trusted. The caller then falls back to
+  ///     <c>CLIENT-IP</c> or the peer address. Multiple header lines are treated as one chain, in order.
+  ///   </para>
+  /// </remarks>
   private static IPAddress? TryGetForwardedForIp (HttpRequest request)
   {
     if (!request.Headers.TryGetValue (key: ForwardedForHeaderName, value: out StringValues forwardedForValues))
       return null;
 
+    var entries = new List<string> ();
+
     foreach (string? headerValue in forwardedForValues)
     {
-      string[] entries = headerValue!.Split (separator: ',',
-                                             options: StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+      if (string.IsNullOrWhiteSpace (headerValue))
+        continue;
 
-      foreach (string entry in entries)
-      {
-        if (TryParseForwardedForEntry (entry: entry, ipAddress: out IPAddress? parsedAddress))
-          return parsedAddress;
-      }
+      entries.AddRange (headerValue.Split (separator: ',',
+                                           options: StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    for (int index = entries.Count - 1; index >= 0; index--)
+    {
+      if (!TryParseForwardedForEntry (entry: entries[index], ipAddress: out IPAddress? parsedAddress))
+        return null;
+
+      IPAddress? address = Normalize (parsedAddress);
+
+      if (IsKnownProxyHop (address))
+        continue;
+
+      return address;
     }
 
     return null;

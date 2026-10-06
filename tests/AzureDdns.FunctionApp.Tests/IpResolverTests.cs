@@ -123,6 +123,96 @@ public sealed class IpResolverTests
         Assert.Equal (expected: "99.87.210.81:55096", actual: result.Diagnostics.ClientIpHeader);
     }
 
+    [Fact]
+    public void Resolve_IgnoresClientSuppliedLeftmostForwardedForEntries ()
+    {
+        // A caller sends "X-Forwarded-For: 9.9.9.9"; the front end appends the address it actually saw.
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "9.9.9.9, 198.51.100.25");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.Diagnostics.ForwardedForIp);
+    }
+
+    [Fact]
+    public void Resolve_SkipsInternalHopsOnTheRight_WhenWalkingForwardedFor ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "169.254.130.5",
+                                             forwardedFor: "9.9.9.9, 198.51.100.25:51234, 10.0.0.7, 172.16.3.4, fd00::1");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
+    }
+
+    [Fact]
+    public void Resolve_ForgedInternalEntriesCannotImpersonateTheClient ()
+    {
+        // The caller pads the header with private addresses hoping to shift which entry is chosen. Private
+        // entries are skipped, so the real address added by the proxy is still the one found.
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "10.1.1.1, 192.168.0.9, 198.51.100.25");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
+    }
+
+    [Fact]
+    public void Resolve_StopsAtAnUnparseableEntry_RatherThanTrustingEntriesToItsLeft ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "9.9.9.9, unknown, 10.0.0.9");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        // Nothing trustworthy in X-Forwarded-For, no CLIENT-IP: falls back to the (internal) peer address.
+        Assert.Null (result.Diagnostics.ForwardedForIp);
+        Assert.Equal (expected: IPAddress.Parse ("10.0.0.4"), actual: result.SourceIp);
+    }
+
+    [Fact]
+    public void Resolve_FallsBackToClientIp_WhenForwardedForHasOnlyInternalEntries ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "10.0.0.9, 192.168.1.2");
+        request.Headers["CLIENT-IP"] = "198.51.100.77:40000";
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.77"), actual: result.SourceIp);
+    }
+
+    [Fact]
+    public void Resolve_TreatsMultipleForwardedForHeaderLinesAsOneChain_InOrder ()
+    {
+        var context = new DefaultHttpContext ();
+        context.Connection.RemoteIpAddress = IPAddress.Parse ("10.0.0.4");
+        context.Request.Headers["X-Forwarded-For"] = new Microsoft.Extensions.Primitives.StringValues (["9.9.9.9", "198.51.100.25"]);
+
+        IpResolutionResult result = this._resolver.Resolve (request: context.Request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
+    }
+
+    [Fact]
+    public void Resolve_NormalizesIpv4MappedEntriesInForwardedFor ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "::ffff:198.51.100.25");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
+    }
+
+    [Fact]
+    public void Resolve_ReadsIpv6ClientFromForwardedFor_IncludingBracketedPortForm ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "[2a02:1234::5]:51234");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: null);
+
+        Assert.Equal (expected: IPAddress.Parse ("2a02:1234::5"), actual: result.SourceIp);
+    }
+
     private static HttpRequest CreateRequest (string remoteIp, string? forwardedFor = null)
     {
         var context = new DefaultHttpContext ();
