@@ -191,6 +191,7 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Recommended | Application Insights connection |
 | `AzureWebJobsStorage` | Required in Azure | Functions host storage connection |
 | `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Optional | Logs all request headers (sensitive ones redacted) on both endpoints for IP diagnostics; default is `false`. See [Source IP resolution](#source-ip-resolution). |
+| `AZURE_CLIENT_ID` | Optional | Client ID of a *user-assigned* managed identity to use for Azure DNS. Leave unset to use the system-assigned identity (what `infra/main.bicep` creates). Ignored off Azure. |
 | `ALLOW_DOCUMENTATION_ADDRESSES` | Optional | `true` (default) allows publishing documentation-range addresses (RFC 5737/3849/9637), which the smoke test uses; `false` refuses them like other unroutable addresses. See [Source IP resolution](#source-ip-resolution). |
 
 ### DDNS config file (`config/dyndns.json`)

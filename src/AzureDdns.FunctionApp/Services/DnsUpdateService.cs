@@ -18,7 +18,6 @@ using System.Net.Sockets;
 
 using Azure;
 using Azure.Core;
-using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.Dns;
 using Azure.ResourceManager.Dns.Models;
@@ -54,9 +53,10 @@ public interface IDnsUpdateService
 /// </summary>
 public sealed class DnsUpdateService (IOptions<RuntimeSettings> runtimeSettings) : IDnsUpdateService
 {
-  // DefaultAzureCredential allows local dev (developer identity) and Azure-hosted managed identity.
+  // In Azure this authenticates as the app's managed identity directly; locally it uses the developer's identity.
+  // See AzureCredentialFactory for the selection rules.
 
-  private readonly ArmClient       armClient = new (new DefaultAzureCredential ());
+  private readonly ArmClient       armClient = new (AzureCredentialFactory.Create ());
   private readonly RuntimeSettings settings  = runtimeSettings.Value;
 
   /// <summary>
