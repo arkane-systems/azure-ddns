@@ -120,6 +120,54 @@ public sealed class UpdateDnsFunctionTests
   }
 
   [Fact]
+  public async Task RunAsync_ReturnsUnauthorized_NotZoneError_WhenZoneUnconfiguredAndCredentialsInvalid ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (), isAuthorized: false);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "bad", ["zone"] = "unknown.example", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status401Unauthorized, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: invalid credentials",      actual: content.Content);
+  }
+
+  [Fact]
+  public async Task RunAsync_ReturnsForbidden_NotZoneError_WhenZoneUnconfiguredAndRecordUnauthorized ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (), isAuthorized: true, isRecordAuthorized: false);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "unknown.example", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status403Forbidden, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: unauthorized record",   actual: content.Content);
+  }
+
+  [Fact]
+  public async Task RunAsync_ReturnsBadRequest_WhenAuthorizedButZoneNotConfigured ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (), isAuthorized: true, isRecordAuthorized: true);
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "unknown.example", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status400BadRequest, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: zone not configured",    actual: content.Content);
+  }
+
+  [Fact]
   public async Task RunAsync_ReturnsForbidden_WhenRecordUnauthorized ()
   {
     var config = new DyndnsConfig { Zones = { ["example.com"] = new ZoneConfig { Ttl = 300 }, }, };

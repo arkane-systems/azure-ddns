@@ -97,6 +97,10 @@ Responses are plain text and stable for client compatibility:
 - Azure DNS backend failure: HTTP `502`
 - Server/configuration failure: HTTP `500`
 
+Checks run in this order: required parameters (`400`), credentials (`401`), record authorization (`403`), then
+that the zone is present in `config/dyndns.json` (`400 ERROR: zone not configured`). The zone check comes last so
+that unauthenticated or unauthorized callers cannot probe which zones are configured.
+
 ## Response contract (`/api/nic/update`)
 
 Responses are plain text per DynDNS v2 specification:

@@ -89,16 +89,14 @@ public sealed class UpdateDnsFunction (
       return Error (statusCode: StatusCodes.Status400BadRequest, message: "missing name");
 
     // Normalize zone: trim whitespace and remove a trailing dot to accept fully-qualified names.
-    // This must be done before config lookup and auth so all three use the same canonical form.
+    // This must be done before auth, authorization and config lookup so all use the same canonical form.
     zone = zone.Trim ().TrimEnd ('.');
 
     DyndnsConfig config = await this.configProvider.GetConfigAsync (cancellationToken);
-    ZoneConfig? zoneConfig =
-      config.Zones.GetValueOrDefault (zone);
 
-    if (zoneConfig is null)
-      return Error (statusCode: StatusCodes.Status400BadRequest, message: "zone not configured");
-
+    // Authenticate and authorize BEFORE checking that the zone is configured, so that an
+    // unauthenticated or unauthorized caller cannot probe which zones exist. This matches
+    // the ordering used by the DynDNS endpoint.
     ClientConfig? authenticatedClient = this.authService.Authenticate (clientName: client, rawKey: key, config: config);
 
     if (authenticatedClient is null)
@@ -106,6 +104,13 @@ public sealed class UpdateDnsFunction (
 
     if (!this.authService.IsRecordAuthorized (client: authenticatedClient, zone: zone, name: name))
       return Error (statusCode: StatusCodes.Status403Forbidden, message: "unauthorized record");
+
+    // Only an authenticated client authorized for this zone/record reaches this check, so a
+    // distinct error is safe here (the client already knows its own allowed zones).
+    ZoneConfig? zoneConfig = config.Zones.GetValueOrDefault (zone);
+
+    if (zoneConfig is null)
+      return Error (statusCode: StatusCodes.Status400BadRequest, message: "zone not configured");
 
     IpResolutionResult resolution = this.ipResolver.Resolve (request: request, explicitIp: explicitIp);
 

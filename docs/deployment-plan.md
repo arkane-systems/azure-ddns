@@ -140,7 +140,7 @@ Perform from a client/network path representing your DDNS caller:
 2. Valid IPv6 update request.
 3. Invalid key request returns `401`.
 4. Unauthorized record request returns `403`.
-5. Unknown zone request returns `400`.
+5. Request for an authorized record in a zone missing from `dyndns.json` returns `400` (unauthenticated/unauthorized callers get `401`/`403` regardless of zone).
 
 Expected behavior:
 
@@ -157,7 +157,7 @@ Expected behavior:
 
 ## 9) Troubleshooting quick notes
 
-- `ERROR: zone not configured` -> zone key missing in `dyndns.json`.
+- `ERROR: zone not configured` -> zone key missing in `dyndns.json` (only returned after authentication and authorization succeed).
 - `ERROR: invalid credentials` -> client name/hash mismatch.
 - `ERROR: dns update failed` -> missing/incorrect RBAC or DNS resource reference issues.
 - `ERROR: server configuration invalid` -> missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.).
