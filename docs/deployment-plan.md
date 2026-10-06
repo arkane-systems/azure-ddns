@@ -14,7 +14,7 @@ The two phases can be run independently, which allows infrastructure and app cod
 ### Required tooling
 
 - Azure CLI (`az`)
-- .NET 8 SDK
+- .NET 10 SDK
 - PowerShell (for smoke testing)
 
 ### Authentication
@@ -29,7 +29,7 @@ az account set --subscription <subscription-id>
 ## 1) Deployment target and assumptions
 
 - Azure Functions Flex Consumption
-- .NET 8 isolated worker
+- .NET 10 isolated worker
 - Function app configuration file packaged with app (`config/dyndns.json`)
 - Azure DNS zones already exist (often in a shared DNS resource group)
 - Function app uses system-assigned managed identity for Azure DNS updates

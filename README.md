@@ -25,7 +25,7 @@ Two endpoint contracts are supported:
 
 ## Current architecture
 
-- Runtime: .NET 8 isolated Azure Functions
+- Runtime: .NET 10 isolated Azure Functions
 - Hosting target: Azure Functions Flex Consumption (Linux)
 - DNS backend: Azure DNS via Azure SDK and managed identity
 - Config source: packaged file `config/dyndns.json` (by design, to keep complexity low)
@@ -228,7 +228,7 @@ Use these steps to deploy. Deployment is intentionally manual: the repository's 
 
 1. Install required tooling:
    - Azure CLI (`az`)
-   - .NET 8 SDK
+   - .NET 10 SDK
    - Azure Functions Core Tools v4 (for local verification)
 2. Sign in to Azure CLI:
    - `az login`

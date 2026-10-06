@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Azure Functions (.NET 8 isolated worker, Flex Consumption/Linux) app that exposes authenticated dynamic-DNS HTTP endpoints and writes `A`/`AAAA` records to existing Azure DNS zones via the Azure SDK and managed identity. `README.md` is detailed (request flows, response contracts, config reference, manual deployment); `docs/deployment-plan.md` and `docs/quick-ops.md` cover deploy/ops.
+Azure Functions (.NET 10 isolated worker, Flex Consumption/Linux) app that exposes authenticated dynamic-DNS HTTP endpoints and writes `A`/`AAAA` records to existing Azure DNS zones via the Azure SDK and managed identity. `README.md` is detailed (request flows, response contracts, config reference, manual deployment); `docs/deployment-plan.md` and `docs/quick-ops.md` cover deploy/ops.
 
 ## Commands
 
@@ -15,6 +15,8 @@ dotnet test --filter "FullyQualifiedName~AuthServiceTests"        # one test cla
 dotnet test --filter "FullyQualifiedName~AuthServiceTests.SomeTest" # one test
 dotnet publish src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj -c Release -o out/functionapp
 ```
+
+The function project uses the `Azure.Functions.Sdk` project SDK, which generates an extensions helper project when the function project itself is restored. A solution-level `dotnet build` still works but prints warning AZFW0108; restore `src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj` directly to avoid it (CI does).
 
 Local run: copy `src/AzureDdns.FunctionApp/local.settings.json.example` to `local.settings.json`, set `DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, `CONFIG_PATH`, then `func start` from the app project folder.
 
@@ -31,7 +33,7 @@ Two HTTP functions share one service layer (`src/AzureDdns.FunctionApp/Services`
 - IP resolution (`IpResolver`) is not just the raw connection address: when the remote address is loopback/private/link-local (i.e. a known proxy hop, as behind Azure's front end), the source IP is taken from `X-Forwarded-For`, then `CLIENT-IP`; otherwise from the connection. An explicit `ip`/`myip` wins but a mismatch with the source IP is logged. Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` logs all headers (sensitive ones redacted) from both endpoints. That logging lives in `Services/IpDiagnosticsLog.cs` and must not log the query string (it holds the raw key on `/api/update`), redacts credential-like headers by name fragment, and passes request-derived strings through `IpDiagnosticsLog.Sanitize` (CodeQL's `cs/log-forging` check on PRs flags unsanitized ones).
 - A missing, unreadable or malformed config file makes `FileConfigProvider` throw `ConfigurationUnavailableException`; both functions log it and return HTTP 503 (`ERROR: configuration unavailable` on `/api/update`, body `911` on `/api/nic/update`). A valid-but-empty file (`{}`) is not an error and just fails authentication. `ttl` defaults to 300.
 - Both endpoints authenticate and authorize *before* checking the zone is configured (`/api/update`: 400 `zone not configured` only for an authorized caller), so configured zone names are not exposed to unauthenticated callers. Zone lookup in config goes through `DyndnsConfig.TryGetZone` for both endpoints, which ignores case, surrounding whitespace and a trailing dot on either side. `AuthService.IsRecordAuthorized` compares `allowedRecords[].zone` the same way (via `DyndnsConfig.NormalizeZoneName`).
-- CI is a single workflow, `.github/workflows/ci.yml`, that has two jobs on every pull request (and manual dispatch): `test` builds and runs the tests, and `bicep` compiles `infra/main.bicep` with `az bicep build`. It targets the test project, not the `.slnx`, because `.slnx` needs a newer SDK than the .NET 8 one the workflow installs. Deployment is deliberately manual CLI, not CI (see README).
+- CI is a single workflow, `.github/workflows/ci.yml`, that has two jobs on every pull request (and manual dispatch): `test` builds and runs the tests, and `bicep` compiles `infra/main.bicep` with `az bicep build`. It restores the function project directly and then the test project (not the `.slnx`): `Azure.Functions.Sdk` generates its extensions helper project only when the function project itself is restored (otherwise warning AZFW0108). Deployment is deliberately manual CLI, not CI (see README).
 - An update touches only the record type matching the IP family (IPv4 → `A`, IPv6 → `AAAA`); the two must stay independent.
 - Tests are xUnit (72 passing at last run; the function tests use stub services, so no Azure access is needed) in `tests/AzureDdns.FunctionApp.Tests`, one file per service/function.
 - `unifi-client/` is a separate Python client + systemd units for Unifi gateways (own README); it is not part of the .NET solution (`azure-ddns.slnx`).

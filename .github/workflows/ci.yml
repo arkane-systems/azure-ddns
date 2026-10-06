@@ -24,16 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The function app targets .NET 8 (isolated worker).
+      # The function app targets .NET 10 (isolated worker).
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
-      # Target the test project rather than the .slnx solution file: .slnx needs a
-      # newer SDK than .NET 8. The test project references the function app, so this
-      # builds both.
+      # Restore the function app project directly, then the test project. Azure.Functions.Sdk
+      # generates its extensions helper project during restore of the function project itself;
+      # restoring only a solution or a referencing project skips that hook (warning AZFW0108).
       - name: Restore
-        run: dotnet restore tests/AzureDdns.FunctionApp.Tests/AzureDdns.FunctionApp.Tests.csproj
+        run: |
+          dotnet restore src/AzureDdns.FunctionApp/AzureDdns.FunctionApp.csproj
+          dotnet restore tests/AzureDdns.FunctionApp.Tests/AzureDdns.FunctionApp.Tests.csproj
 
       - name: Build
         run: dotnet build tests/AzureDdns.FunctionApp.Tests/AzureDdns.FunctionApp.Tests.csproj --configuration Release --no-restore

@@ -142,7 +142,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
     functionAppConfig: {
       runtime: {
         name: 'dotnet-isolated'
-        version: '8.0'
+        version: '10.0'
       }
       scaleAndConcurrency: {
         maximumInstanceCount: 40
