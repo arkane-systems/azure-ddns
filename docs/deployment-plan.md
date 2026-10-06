@@ -136,16 +136,16 @@ azd up
 
 Perform from a client/network path representing your DDNS caller:
 
-1. Valid IPv4 update request.
+1. Valid IPv4 update request to `/api/nic/update` (`scripts/smoke-test-dyndns.ps1` covers 1-2).
 2. Valid IPv6 update request.
-3. Invalid key request returns `401`.
-4. Unauthorized record request returns `403`.
-5. Request for an authorized record in a zone missing from `dyndns.json` returns `400` (unauthenticated/unauthorized callers get `401`/`403` regardless of zone).
+3. Invalid key request returns `401` with body `badauth`.
+4. Unauthorized or unknown hostname returns `200` with body `nohost`.
+5. A plain `http://` request is refused or redirected (the Function App has `httpsOnly` enabled).
 
 Expected behavior:
 
 - `A` and `AAAA` updates remain independent.
-- Responses are plain-text `OK:`/`ERROR:`.
+- Responses are DynDNS v2 plain-text codes (`good <ip>`, `badauth`, `nohost`, `911`).
 
 ### C. Logging and security validation
 
@@ -157,11 +157,10 @@ Expected behavior:
 
 ## 9) Troubleshooting quick notes
 
-- `ERROR: zone not configured` -> zone key missing in `dyndns.json` (only returned after authentication and authorization succeed).
-- `ERROR: invalid credentials` -> client name/hash mismatch.
-- `ERROR: dns update failed` -> missing/incorrect RBAC or DNS resource reference issues.
-- `ERROR: server configuration invalid` -> missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.).
-- `503` (`ERROR: configuration unavailable` on `/api/update`; `911` on `/api/nic/update`) -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; check the app log for the path and parse error.
+- `badauth` (401) -> client name/hash mismatch, or no usable `Authorization: Basic` header.
+- `nohost` -> hostname not under a configured zone, or the client is not allowed to update that record.
+- `911` (200) -> server-side failure: missing/incorrect RBAC or DNS resource reference, managed identity unavailable, missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.), or an unusable `myip`; check the app log.
+- `911` with HTTP `503` -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; check the app log for the path and parse error.
 
 ## 10) Suggested ongoing operations
 

@@ -37,7 +37,7 @@ namespace AzureDdns.FunctionApp.Services;
 ///   </para>
 ///   <para>
 ///     Everything logged that originated from the request (headers, hostnames, client names) is passed through
-///     <see cref="Sanitize" /> first, so a caller cannot forge log lines by embedding line breaks or other control
+///     <see cref="LogSanitizer.Sanitize" /> first, so a caller cannot forge log lines by embedding line breaks or other control
 ///     characters in a header or parameter (log forging, CWE-117).
 ///   </para>
 /// </remarks>
@@ -51,20 +51,6 @@ public static class IpDiagnosticsLog
   ///   not anticipated, such as <c>Proxy-Authorization</c>, <c>X-Api-Key</c> or <c>x-ms-token-aad-id-token</c>.
   /// </summary>
   private static readonly string[] SensitiveHeaderFragments = ["auth", "cookie", "key", "token", "secret", "password", "credential",];
-
-  /// <summary>
-  ///   Makes a request-derived string safe to write to a log: control characters (including CR and LF) are
-  ///   replaced with an underscore so the value cannot start a new, forged log line.
-  /// </summary>
-  /// <param name="value">The value to sanitize; <see langword="null" /> is returned unchanged.</param>
-  public static string? Sanitize (string? value)
-    => value is null ? null : string.Create (length: value.Length,
-                                             state: value,
-                                             action: static (span, source) =>
-                                                     {
-                                                       for (var index = 0; index < source.Length; index++)
-                                                         span[index] = char.IsControl (source[index]) ? '_' : source[index];
-                                                     });
 
   private static bool IsSensitiveHeader (string headerName)
     => SensitiveHeaderFragments.Any (fragment => headerName.Contains (value: fragment, comparisonType: StringComparison.OrdinalIgnoreCase));
@@ -92,33 +78,33 @@ public static class IpDiagnosticsLog
 
     logger.LogInformation (message:
                            "IP resolution diagnostics for {Target}: remote={RemoteIp}, source={SourceIp}, knownProxyHop={KnownProxyHop}, parsedForwardedFor={ParsedForwardedFor}, parsedClientIp={ParsedClientIp}, xForwardedFor={XForwardedFor}, forwarded={Forwarded}, xOriginalFor={XOriginalFor}, xRealIp={XRealIp}, clientIp={ClientIp}.",
-                           Sanitize (target),
+                           LogSanitizer.Sanitize (target),
                            diagnostics.RemoteIp,
                            resolution.SourceIp,
                            diagnostics.KnownProxyHop,
                            diagnostics.ForwardedForIp,
                            diagnostics.ClientIp,
-                           Sanitize (diagnostics.ForwardedForHeader),
-                           Sanitize (diagnostics.ForwardedHeader),
-                           Sanitize (diagnostics.XOriginalForHeader),
-                           Sanitize (diagnostics.XRealIpHeader),
-                           Sanitize (diagnostics.ClientIpHeader));
+                           LogSanitizer.Sanitize (diagnostics.ForwardedForHeader),
+                           LogSanitizer.Sanitize (diagnostics.ForwardedHeader),
+                           LogSanitizer.Sanitize (diagnostics.XOriginalForHeader),
+                           LogSanitizer.Sanitize (diagnostics.XRealIpHeader),
+                           LogSanitizer.Sanitize (diagnostics.ClientIpHeader));
 
     if (logAllHeaders)
     {
-      Dictionary<string, string> headers = request.Headers.ToDictionary (keySelector: pair => Sanitize (pair.Key)!,
+      Dictionary<string, string> headers = request.Headers.ToDictionary (keySelector: pair => LogSanitizer.Sanitize (pair.Key)!,
                                                                          elementSelector: pair => IsSensitiveHeader (pair.Key)
                                                                                                     ? Redacted
-                                                                                                    : Sanitize (pair.Value.ToString ())!,
+                                                                                                    : LogSanitizer.Sanitize (pair.Value.ToString ())!,
                                                                          comparer: StringComparer.OrdinalIgnoreCase);
 
-      logger.LogInformation (message: "Full request header diagnostics for {Target}: {@Headers}", Sanitize (target), headers);
+      logger.LogInformation (message: "Full request header diagnostics for {Target}: {@Headers}", LogSanitizer.Sanitize (target), headers);
     }
 
     if (resolution.SourceIp is not null && IPAddress.IsLoopback (resolution.SourceIp))
       logger.LogWarning (message:
                          "Source IP resolved to loopback for {Target}; confirm reverse-proxy header forwarding configuration.",
-                         Sanitize (target));
+                         LogSanitizer.Sanitize (target));
   }
 
   /// <summary>
@@ -134,9 +120,9 @@ public static class IpDiagnosticsLog
       return;
 
     logger.LogWarning (message: "Client {Client} supplied explicit IP {ExplicitIp} differing from source IP {SourceIp} for {Target}.",
-                       Sanitize (client),
+                       LogSanitizer.Sanitize (client),
                        resolution.EffectiveIp,
                        resolution.SourceIp,
-                       Sanitize (target));
+                       LogSanitizer.Sanitize (target));
   }
 }

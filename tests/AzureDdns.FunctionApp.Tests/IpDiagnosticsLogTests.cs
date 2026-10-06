@@ -103,16 +103,6 @@ public sealed class IpDiagnosticsLogTests
     Assert.DoesNotContain (expectedSubstring: "api-key-value",  actualString: headerEntry);
   }
 
-  [Theory]
-  [InlineData ("a\r\nFORGED", "a__FORGED")]
-  [InlineData ("tab\there",   "tab_here")]
-  [InlineData ("clean.example.com", "clean.example.com")]
-  public void Sanitize_ReplacesControlCharacters (string input, string expected)
-    => Assert.Equal (expected: expected, actual: IpDiagnosticsLog.Sanitize (input));
-
-  [Fact]
-  public void Sanitize_ReturnsNull_ForNull () => Assert.Null (IpDiagnosticsLog.Sanitize (null));
-
   [Fact]
   public void LogResolution_DoesNotLetForwardedHeaderForgeLogLines ()
   {

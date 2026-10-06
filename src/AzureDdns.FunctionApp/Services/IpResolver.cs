@@ -59,9 +59,12 @@ public sealed class IpResolver : IIpResolver
     ArgumentNullException.ThrowIfNull (request);
 
     IpResolutionDiagnostics diagnostics = CreateDiagnostics (request);
-    IPAddress? sourceIp = !diagnostics.KnownProxyHop
-                            ? diagnostics.RemoteIp
-                            : diagnostics.ForwardedForIp ?? diagnostics.ClientIp ?? diagnostics.RemoteIp;
+    // Addresses are normalized so an IPv4-mapped IPv6 address (::ffff:a.b.c.d, as dual-stack sockets
+    // report IPv4 peers) is treated as the IPv4 address it represents. Without this, such an address would
+    // select the AAAA record type and be written to DNS as a bogus IPv6 address.
+    IPAddress? sourceIp = Normalize (!diagnostics.KnownProxyHop
+                                       ? diagnostics.RemoteIp
+                                       : diagnostics.ForwardedForIp ?? diagnostics.ClientIp ?? diagnostics.RemoteIp);
 
     if (string.IsNullOrWhiteSpace (explicitIp))
       return new IpResolutionResult (EffectiveIp: sourceIp,
@@ -75,6 +78,8 @@ public sealed class IpResolver : IIpResolver
                                      ExplicitIpMismatch: false,
                                      Diagnostics: diagnostics);
 
+    parsedExplicitIp = Normalize (parsedExplicitIp)!;
+
     bool mismatch = sourceIp is not null && !sourceIp.Equals (parsedExplicitIp);
 
     return new IpResolutionResult (EffectiveIp: parsedExplicitIp,
@@ -82,6 +87,9 @@ public sealed class IpResolver : IIpResolver
                                    ExplicitIpMismatch: mismatch,
                                    Diagnostics: diagnostics);
   }
+
+  private static IPAddress? Normalize (IPAddress? address)
+    => address is { IsIPv4MappedToIPv6: true, } ? address.MapToIPv4 () : address;
 
   private static IpResolutionDiagnostics CreateDiagnostics (HttpRequest request)
   {

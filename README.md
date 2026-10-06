@@ -4,24 +4,22 @@ Azure Functions-based dynamic DNS updater for Azure DNS zones.
 
 ## What this project does
 
-This project provides HTTP endpoints that dynamic DNS clients can call to keep Azure DNS records current.
-Two endpoint contracts are supported:
+This project provides an HTTP endpoint that dynamic DNS clients can call to keep Azure DNS records current. It
+speaks the DynDNS v2 protocol, so it works with Unifi gateways, ddclient, OpenWRT (`dyndns2` provider) and similar clients.
 
-### Custom endpoint (`/api/update`) — for OpenWRT and similar
+### DynDNS v2 endpoint (`/api/nic/update`)
 
-- Endpoint contract: `GET /api/update?client=<name>&key=<raw-key>&zone=<zone>&name=<record>[&ip=<address>]`
-- Authentication: client name + raw key (validated against SHA-256 hash in config)
+- Endpoint contract: `GET /api/nic/update?hostname=<fqdn>[&myip=<address>]`
+- Authentication: HTTP Basic Auth (`Authorization: Basic base64(clientname:rawkey)`); the key never appears in the URL
+- Transport: HTTPS only (`httpsOnly` is set on the Function App in `infra/main.bicep`)
+- FQDN zone inference: the zone is determined automatically from the hostname and configured zones
 - Authorization: per-client allowed zone/record list (`*` wildcard record name supported)
 - Record behavior: updates only the matching address family
   - IPv4 -> `A` record only
   - IPv6 -> `AAAA` record only
 
-### DynDNS v2 endpoint (`/api/nic/update`) — for Unifi and ddclient-compatible routers
-
-- Endpoint contract: `GET /api/nic/update?hostname=<fqdn>[&myip=<address>]`
-- Authentication: HTTP Basic Auth (`Authorization: Basic base64(clientname:rawkey)`)
-- FQDN zone inference: the zone is determined automatically from the hostname and configured zones
-- Record behavior: same as above — only the matching address family is updated
+The earlier custom `/api/update` endpoint (client name and key in the query string) has been removed. Clients that
+used it must switch to `/api/nic/update` with Basic auth; see the Unifi client in `unifi-client/` for an example.
 
 ## Current architecture
 
@@ -30,24 +28,20 @@ Two endpoint contracts are supported:
 - DNS backend: Azure DNS via Azure SDK and managed identity
 - Config source: packaged file `config/dyndns.json` (by design, to keep complexity low)
 
-### Request processing flow (`/api/update`)
-
-1. Function receives `GET /api/update` request.
-2. Query parameters are validated (`client`, `key`, `zone`, `name`; optional `ip`).
-3. `config/dyndns.json` is loaded.
-4. Client is authenticated by comparing SHA-256 hash of provided key.
-5. Requested record is authorized for that client.
-6. Effective IP is resolved:
-   - `ip` query value if provided and valid
-   - otherwise the resolved source IP (see [Source IP resolution](#source-ip-resolution))
-7. DNS update is sent to Azure DNS using managed identity.
-8. Plain-text response is returned for DDNS client compatibility.
-
 ### Request processing flow (`/api/nic/update`)
 
+The work is split between a thin HTTP front end and a protocol-neutral coordinator, so that another API can be added
+later without duplicating policy:
+
+- `Functions/DyndnsUpdateFunction.cs` parses the DynDNS v2 request and renders the DynDNS v2 response.
+- `Services/DdnsUpdateCoordinator.cs` performs the update and reports a `DdnsUpdateStatus`; it knows nothing about
+  DynDNS response codes.
+
+Steps:
+
 1. Function receives `GET /api/nic/update` request.
-2. `Authorization: Basic` header is parsed for client name and raw key.
-3. `config/dyndns.json` is loaded.
+2. `Authorization: Basic` header is parsed for client name and raw key (missing/invalid header -> `badauth`).
+3. The coordinator loads `config/dyndns.json`.
 4. Client is authenticated by comparing SHA-256 hash of provided key.
 5. `hostname` FQDN is resolved to a configured zone and relative record name (longest-suffix match).
 6. Requested record is authorized for that client.
@@ -55,12 +49,12 @@ Two endpoint contracts are supported:
    - `myip` query value if provided and valid
    - otherwise the resolved source IP (see [Source IP resolution](#source-ip-resolution))
 8. DNS update is sent to Azure DNS using managed identity.
-9. DynDNS v2 plain-text response is returned.
+9. The function maps the coordinator's status to a DynDNS v2 plain-text response.
 
 ## Source IP resolution
 
-Both endpoints share `Services/IpResolver.cs`. When the client supplies an explicit address (`ip` on `/api/update`,
-`myip` on `/api/nic/update`) that address is used. Otherwise the *source IP* is derived as follows.
+`Services/IpResolver.cs` decides which address is written. When the client supplies an explicit address (`myip`)
+that address is used. Otherwise the *source IP* is derived as follows.
 
 The app normally sits behind Azure's front end, so the TCP peer seen by the function is an infrastructure address,
 not the caller. The resolver therefore treats the peer as a **known proxy hop** when its address is loopback,
@@ -76,34 +70,20 @@ Notes:
 
 - Forwarding-header entries may be `ip`, `ip:port`, or `[ipv6]:port`; the port is stripped. Unparseable entries are skipped.
 - `Forwarded`, `X-Original-For` and `X-Real-IP` are captured for diagnostics only and never used to choose the IP.
-- An explicit address that is not a valid IP address is rejected (`/api/update`: `400`; `/api/nic/update`: `911`).
-  If the source IP cannot be determined and no explicit address was given, the request fails the same way.
+- IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) are converted to the IPv4 address they represent, both for `myip`
+  and for the source IP, so they update the `A` record rather than writing a bogus `AAAA` record.
+- An explicit address that is not a valid IP address is rejected (`911`). If the source IP cannot be determined and
+  no explicit address was given, the request fails the same way.
 - If an explicit address differs from the resolved source IP, the update still proceeds (the client is authenticated
-  and authorized) but a warning is logged (both endpoints).
-- Both endpoints log the resolution diagnostics (peer, parsed address, raw forwarding headers) on every request,
+  and authorized) but a warning is logged.
+- The resolution diagnostics are logged (peer, parsed address, raw forwarding headers) on every request,
   and warns if the source IP resolves to loopback, which usually means header forwarding is misconfigured.
-  Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header on both endpoints
+  Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header
   (any header whose name contains `auth`, `cookie`, `key`, `token`, `secret`, `password` or `credential` is redacted,
   e.g. `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Functions-Key`, `X-Api-Key`). Request-derived values in these log
   lines have control characters (including line breaks) replaced with `_`, so callers cannot forge log entries.
-  The query string is never logged (on `/api/update` it carries the raw key). This logging is implemented once, in
-  `Services/IpDiagnosticsLog.cs`, and shared by both functions.
-
-## Response contract (`/api/update`)
-
-Responses are plain text and stable for client compatibility:
-
-- Success: `OK: ...` with HTTP `200`
-- Validation failures: `ERROR: ...` with HTTP `400`
-- Invalid credentials: HTTP `401`
-- Unauthorized record: HTTP `403`
-- Azure DNS backend failure: HTTP `502`
-- Server/configuration failure (missing required app settings): HTTP `500`
-- Configuration file missing, unreadable or malformed: HTTP `503` with `ERROR: configuration unavailable`
-
-Checks run in this order: required parameters (`400`), credentials (`401`), record authorization (`403`), then
-that the zone is present in `config/dyndns.json` (`400 ERROR: zone not configured`). The zone check comes last so
-that unauthenticated or unauthorized callers cannot probe which zones are configured.
+  The query string is never logged. This logging is implemented in `Services/IpDiagnosticsLog.cs`; request-derived
+  values are sanitized by `Services/LogSanitizer.cs`.
 
 ## Response contract (`/api/nic/update`)
 
@@ -123,9 +103,8 @@ Responses are plain text per DynDNS v2 specification:
 
 ### Prerequisites in `dyndns.json`
 
-No separate configuration section is needed for the DynDNS endpoint. The same `config/dyndns.json` client entries
-work for both `/api/update` and `/api/nic/update`. Ensure the client entry includes an `allowedRecords` entry for
-the zone and record name corresponding to the FQDN you are updating:
+Ensure the client entry in `config/dyndns.json` includes an `allowedRecords` entry for the zone and record name
+corresponding to the FQDN you are updating:
 
 ```json
 {
@@ -150,17 +129,18 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
 ## Repository layout
 
 - `src/AzureDdns.FunctionApp` - Function app code
-  - `Functions/UpdateDnsFunction.cs` - HTTP entrypoint for `/api/update`
-  - `Functions/DyndnsUpdateFunction.cs` - HTTP entrypoint for `/api/nic/update` (DynDNS v2)
+  - `Functions/DyndnsUpdateFunction.cs` - HTTP entrypoint for `/api/nic/update` (DynDNS v2 wire format only)
+  - `Services/DdnsUpdateCoordinator.cs` - protocol-neutral update pipeline (config, auth, zone/IP resolution, DNS write)
   - `Services/AuthService.cs` - authentication + authorization checks
-  - `Services/FqdnResolver.cs` - FQDN to zone/record resolution (used by DynDNS endpoint)
+  - `Services/FqdnResolver.cs` - FQDN to zone/record resolution
   - `Services/IpResolver.cs` - source/explicit IP handling
+  - `Services/IpDiagnosticsLog.cs`, `Services/LogSanitizer.cs` - IP diagnostics logging and log-forging protection
   - `Services/DnsUpdateService.cs` - Azure DNS SDK update logic
   - `Services/ConfigProvider.cs` - reads DDNS config JSON
   - `config/dyndns.json` - sample DDNS configuration
   - `local.settings.json.example` - local app settings template
 - `tests/AzureDdns.FunctionApp.Tests` - xUnit tests
-- `scripts/smoke-test.ps1` - post-deployment smoke test for end-to-end DDNS validation
+- `scripts/smoke-test-dyndns.ps1` - post-deployment smoke test for end-to-end DDNS validation
 - `unifi-client/` - Python DDNS client for Unifi gateways (see [`unifi-client/README.md`](unifi-client/README.md))
   - `arkane-ddns-client.py` - main update script supporting IPv4 and IPv6
   - `arkane-ddns-client.conf.example` - configuration template
@@ -217,7 +197,7 @@ Security notes:
    - `dotnet build`
 5. Run tests:
    - `dotnet test`
-6. Run function locally (from app project folder) and send a test request to `/api/update`.
+6. Run function locally (from app project folder) and send a test request to `/api/nic/update` (for example `curl -u <client>:<key> "http://localhost:7071/api/nic/update?hostname=<fqdn>&myip=<ip>"`).
 
 ## Manual deployment from a repository clone
 
@@ -305,10 +285,10 @@ Example:
 
 ### 7) Validate deployment
 
-1. Confirm the Function App is running and responds on `/api/update`.
+1. Confirm the Function App is running and responds on `/api/nic/update` (an unauthenticated request should return `badauth`).
 2. Verify managed identity role assignments are present as expected (including optional DNS zone-scoped RBAC when enabled).
 3. Run the smoke test:
-   - `./scripts/smoke-test.ps1 -FunctionBaseUrl 'https://<function-app-name>.azurewebsites.net' -ClientName '<client>' -Zone '<zone>' -Name '<record>'`
+   - `./scripts/smoke-test-dyndns.ps1 -FunctionBaseUrl 'https://<function-app-name>.azurewebsites.net' -ClientName '<client>' -Zone '<zone>' -Name '<record>'`
 4. Confirm behavior:
    - IPv4 requests update only `A`.
    - IPv6 requests update only `AAAA`.
@@ -326,7 +306,7 @@ If desired, validate behavior locally first:
 
 1. Copy `src/AzureDdns.FunctionApp/local.settings.json.example` to `src/AzureDdns.FunctionApp/local.settings.json`.
 2. Set local values for `DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, and `CONFIG_PATH`.
-3. Run the app locally and test the `/api/update` endpoint with your configured client credentials.
+3. Run the app locally and test the `/api/nic/update` endpoint with your configured client credentials.
 
 ## Operational checklist
 
@@ -343,22 +323,22 @@ After deployment, verify:
 
 ## Smoke test script
 
-Use `scripts/smoke-test.ps1` after deployment to perform an end-to-end functional validation of the Function App and Azure DNS integration.
+Use `scripts/smoke-test-dyndns.ps1` after deployment to perform an end-to-end functional validation of the Function App and Azure DNS integration.
 
 What the script does:
 
 1. Accepts the target Function App URL plus the client, zone, and record name to test.
 2. Generates one random IPv4 address from the RFC5737 documentation ranges.
 3. Generates one random IPv6 address from the RFC3849 documentation range.
-4. Sends an IPv4 update request and verifies the plain-text success response.
+4. Sends an IPv4 update request and verifies the DynDNS `good <ip>` response.
 5. Queries an authoritative name server for the target zone and waits for the `A` record to match the generated IPv4 address.
-6. Sends an IPv6 update request and verifies the plain-text success response.
+6. Sends an IPv6 update request and verifies the DynDNS `good <ip>` response.
 7. Queries an authoritative name server again and waits for the `AAAA` record to match the generated IPv6 address.
 8. Confirms that the earlier `A` record value remains unchanged to validate `A`/`AAAA` independence.
 
 Parameters:
 
-- `-FunctionBaseUrl` - Base URL of the deployed Function App, with or without `/api/update`
+- `-FunctionBaseUrl` - Base URL of the deployed Function App, with or without `/api/nic/update`
 - `-ClientName` - DDNS client name configured in `config/dyndns.json`
 - `-ClientKey` - raw DDNS client key; if omitted, the script uses `AZURE_DDNS_CLIENT_KEY`
 - `-Zone` - DNS zone to test
@@ -370,7 +350,7 @@ Example:
 
 ```powershell
 $env:AZURE_DDNS_CLIENT_KEY = 'your-raw-client-key'
-.\scripts\smoke-test.ps1 `
+.\scripts\smoke-test-dyndns.ps1 `
   -FunctionBaseUrl 'https://<your-function-app>.azurewebsites.net' `
   -ClientName 'stargate' `
   -Zone 'arkane-systems.net' `
@@ -391,5 +371,5 @@ If you revisit this repo after a long gap, start in this order:
 1. `README.md` (high-level model + references)
 2. `docs/deployment-plan.md` (exact deploy/validate procedure)
 3. `infra/main.bicep` (what is provisioned and why)
-4. `src/AzureDdns.FunctionApp/Functions/UpdateDnsFunction.cs` (custom endpoint request flow)
-5. `src/AzureDdns.FunctionApp/Functions/DyndnsUpdateFunction.cs` (DynDNS v2 endpoint request flow)
+4. `src/AzureDdns.FunctionApp/Functions/DyndnsUpdateFunction.cs` (DynDNS v2 wire format)
+5. `src/AzureDdns.FunctionApp/Services/DdnsUpdateCoordinator.cs` (the actual update pipeline)

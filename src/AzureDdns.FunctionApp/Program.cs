@@ -56,6 +56,7 @@ IHost host = new HostBuilder ()
                                   _ = services.AddSingleton<IFqdnResolver, FqdnResolver> ();
                                   _ = services.AddSingleton<IIpResolver, IpResolver> ();
                                   _ = services.AddSingleton<IDnsUpdateService, DnsUpdateService> ();
+                                  _ = services.AddSingleton<IDdnsUpdateCoordinator, DdnsUpdateCoordinator> ();
                                 })
             .Build ();
 

@@ -70,19 +70,19 @@ Confirm these are present on the Function App:
 
 ## 6) Smoke test DDNS endpoint
 
-Contract:
+Run `scripts/smoke-test-dyndns.ps1` (see README, "Smoke test script"). Contract:
 
 ```text
-GET /api/update?client=<name>&key=<raw-key>&zone=<zone>&name=<record>[&ip=<address>]
+GET /api/nic/update?hostname=<fqdn>[&myip=<address>]      (Authorization: Basic client:key)
 ```
 
 Expected checks:
 
-1. valid IPv4 request updates only `A`
-2. valid IPv6 request updates only `AAAA`
-3. bad key returns `401`
-4. unauthorized record returns `403`
-5. authorized record in a zone missing from `dyndns.json` returns `400` (an unauthenticated or unauthorized caller gets `401`/`403` instead, whatever the zone)
+1. valid IPv4 request updates only `A` (`good <ip>`)
+2. valid IPv6 request updates only `AAAA` (`good <ip>`)
+3. bad key returns `401` with body `badauth`
+4. unauthorized or unknown hostname returns `200` with body `nohost`
+5. plain `http://` requests are refused or redirected (the app is HTTPS-only)
 
 ## 7) Rotate a client key hash
 
@@ -93,8 +93,7 @@ Expected checks:
 
 ## 8) Common failures
 
-- `ERROR: invalid credentials` -> client key hash mismatch.
-- `ERROR: zone not configured` -> missing zone entry in `dyndns.json` (only returned to an authenticated client authorized for that zone/record).
-- `ERROR: dns update failed` -> DNS RBAC/scope issue or DNS resource lookup issue.
-- `ERROR: server configuration invalid` -> missing `DNS_SUBSCRIPTION_ID` or `DNS_RESOURCE_GROUP`.
-- `503` (`ERROR: configuration unavailable` on `/api/update`; `911` on `/api/nic/update`) -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; the app log names the path and parse error.
+- `badauth` (401) -> client name/key mismatch, or no usable `Authorization: Basic` header.
+- `nohost` -> hostname not under a configured zone, or the client is not allowed to update that record.
+- `911` (200) -> server-side failure: DNS RBAC/scope issue, DNS write failure, managed identity unavailable, missing `DNS_SUBSCRIPTION_ID`/`DNS_RESOURCE_GROUP`, or an unusable `myip`; the app log has the detail.
+- `911` with HTTP `503` -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; the app log names the path and parse error.

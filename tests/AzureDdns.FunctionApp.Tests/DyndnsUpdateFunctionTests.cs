@@ -323,13 +323,17 @@ public sealed class DyndnsUpdateFunctionTests
                                            ? new StubDnsUpdateService (result: dnsUpdateResult, exception: dnsUpdateException)
                                            : new NoopDnsUpdateService ();
 
-    return new DyndnsUpdateFunction (configProvider: configProvider,
-                                     authService: authService,
-                                     fqdnResolver: fqdnResolver,
-                                     ipResolver: ipResolver,
-                                     dnsUpdateService: dnsUpdateService,
-                                     runtimeSettings: Options.Create (new RuntimeSettings ()),
-                                     logger: NullLogger<DyndnsUpdateFunction>.Instance);
+    // The function is a thin front end over the coordinator; these tests exercise the two together
+    // (with stubbed collaborators) so they cover the wire-format mapping of every outcome.
+    var coordinator = new DdnsUpdateCoordinator (configProvider: configProvider,
+                                                 authService: authService,
+                                                 fqdnResolver: fqdnResolver,
+                                                 ipResolver: ipResolver,
+                                                 dnsUpdateService: dnsUpdateService,
+                                                 runtimeSettings: Options.Create (new RuntimeSettings ()),
+                                                 logger: NullLogger<DdnsUpdateCoordinator>.Instance);
+
+    return new DyndnsUpdateFunction (coordinator);
   }
 
   private static HttpRequest CreateRequest (Dictionary<string, string?> query,
