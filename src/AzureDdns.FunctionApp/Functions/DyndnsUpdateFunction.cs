@@ -106,7 +106,20 @@ public sealed class DyndnsUpdateFunction (
       return Badauth ();
 
     // Step 2: Load configuration.
-    DyndnsConfig config = await this.configProvider.GetConfigAsync (cancellationToken);
+    //         A missing or malformed configuration file is a server fault, reported as the DynDNS
+    //         server-error code "911" with HTTP 503 so clients and monitoring both see a retryable failure.
+    DyndnsConfig config;
+
+    try
+    {
+      config = await this.configProvider.GetConfigAsync (cancellationToken);
+    }
+    catch (ConfigurationUnavailableException exception)
+    {
+      this.logger.LogError (exception: exception, message: "DynDNS: configuration is unavailable.");
+
+      return ServiceUnavailable ();
+    }
 
     // Step 3: Authenticate the caller.
     //         clientName and rawKey are guaranteed non-null here: TryParseBasicAuth only returns
@@ -284,6 +297,10 @@ public sealed class DyndnsUpdateFunction (
   ///   DynDNS v2 server-error response: <c>911</c> (HTTP 200).
   ///   Clients that respect the protocol should back off and retry after a delay.
   /// </summary>
+  private static ContentResult ServiceUnavailable ()
+    => new ()
+       { Content = "911", ContentType = "text/plain", StatusCode = StatusCodes.Status503ServiceUnavailable, };
+
   private static ContentResult ServerError ()
     => new () { Content = "911", ContentType = "text/plain", StatusCode = StatusCodes.Status200OK, };
 }

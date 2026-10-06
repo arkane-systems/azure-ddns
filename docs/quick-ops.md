@@ -97,3 +97,4 @@ Expected checks:
 - `ERROR: zone not configured` -> missing zone entry in `dyndns.json` (only returned to an authenticated client authorized for that zone/record).
 - `ERROR: dns update failed` -> DNS RBAC/scope issue or DNS resource lookup issue.
 - `ERROR: server configuration invalid` -> missing `DNS_SUBSCRIPTION_ID` or `DNS_RESOURCE_GROUP`.
+- `503` (`ERROR: configuration unavailable` on `/api/update`; `911` on `/api/nic/update`) -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; the app log names the path and parse error.

@@ -92,7 +92,18 @@ public sealed class UpdateDnsFunction (
     // This must be done before auth, authorization and config lookup so all use the same canonical form.
     zone = zone.Trim ().TrimEnd ('.');
 
-    DyndnsConfig config = await this.configProvider.GetConfigAsync (cancellationToken);
+    DyndnsConfig config;
+
+    try
+    {
+      config = await this.configProvider.GetConfigAsync (cancellationToken);
+    }
+    catch (ConfigurationUnavailableException exception)
+    {
+      this.logger.LogError (exception: exception, message: "DDNS configuration is unavailable.");
+
+      return Error (statusCode: StatusCodes.Status503ServiceUnavailable, message: "configuration unavailable");
+    }
 
     // Authenticate and authorize BEFORE checking that the zone is configured, so that an
     // unauthenticated or unauthorized caller cannot probe which zones exist. This matches

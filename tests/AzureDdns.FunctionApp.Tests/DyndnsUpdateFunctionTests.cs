@@ -49,10 +49,10 @@ public sealed class DyndnsUpdateFunctionTests
 
   #region Nested type: StaticConfigProvider
 
-  private sealed class StaticConfigProvider (DyndnsConfig config) : IConfigProvider
+  private sealed class StaticConfigProvider (DyndnsConfig config, Exception? exception = null) : IConfigProvider
   {
     public Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default)
-      => Task.FromResult (config);
+      => exception is not null ? throw exception : Task.FromResult (config);
   }
 
   #endregion
@@ -288,6 +288,20 @@ public sealed class DyndnsUpdateFunctionTests
     Assert.Equal (expected: "911",                   actual: content.Content);
   }
 
+  [Fact]
+  public async Task RunAsync_Returns911With503_WhenConfigurationUnavailable ()
+  {
+    DyndnsUpdateFunction function = CreateFunction (configException: new ConfigurationUnavailableException ("missing"));
+    HttpRequest request = CreateRequest (query: new Dictionary<string, string?> { ["hostname"] = "home.example.com", },
+                                         authHeader: MakeBasicAuth ("client", "key"));
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status503ServiceUnavailable, actual: content.StatusCode);
+    Assert.Equal (expected: "911",                                    actual: content.Content);
+  }
+
   // ── factory helpers ───────────────────────────────────────────────────────────────────────
 
   private static DyndnsUpdateFunction CreateFunction (DyndnsConfig?    config             = null,
@@ -295,11 +309,12 @@ public sealed class DyndnsUpdateFunctionTests
                                                       bool             isRecordAuthorized  = true,
                                                       FqdnResolution?  fqdnResolution      = null,
                                                       UpdateDnsResult? dnsUpdateResult     = null,
-                                                      Exception?       dnsUpdateException  = null)
+                                                      Exception?       dnsUpdateException  = null,
+                                                      Exception?       configException     = null)
   {
     config ??= new DyndnsConfig ();
 
-    IConfigProvider   configProvider   = new StaticConfigProvider (config);
+    IConfigProvider   configProvider   = new StaticConfigProvider (config: config, exception: configException);
     IAuthService      authService      = new StubAuthService (isAuthorized: isAuthorized, isRecordAuthorized: isRecordAuthorized);
     IFqdnResolver     fqdnResolver     = new StubFqdnResolver (resolution: fqdnResolution);
     IIpResolver       ipResolver       = new IpResolver ();

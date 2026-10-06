@@ -49,9 +49,10 @@ public sealed class UpdateDnsFunctionTests
 
   #region Nested type: StaticConfigProvider
 
-  private sealed class StaticConfigProvider (DyndnsConfig config) : IConfigProvider
+  private sealed class StaticConfigProvider (DyndnsConfig config, Exception? exception = null) : IConfigProvider
   {
-    public Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default) => Task.FromResult (config);
+    public Task<DyndnsConfig> GetConfigAsync (CancellationToken cancellationToken = default)
+      => exception is not null ? throw exception : Task.FromResult (config);
   }
 
   #endregion
@@ -225,6 +226,24 @@ public sealed class UpdateDnsFunctionTests
   }
 
   [Fact]
+  public async Task RunAsync_ReturnsServiceUnavailable_WhenConfigurationUnavailable ()
+  {
+    UpdateDnsFunction function = CreateFunction (config: new DyndnsConfig (),
+                                                 isAuthorized: true,
+                                                 configException: new ConfigurationUnavailableException ("missing"));
+    HttpRequest request = CreateRequest (new Dictionary<string, string?>
+                                         {
+                                           ["client"] = "home-router", ["key"] = "ok", ["zone"] = "example.com", ["name"] = "home",
+                                         });
+
+    IActionResult result = await function.RunAsync (request: request, cancellationToken: CancellationToken.None);
+
+    var content = Assert.IsType<ContentResult> (result);
+    Assert.Equal (expected: StatusCodes.Status503ServiceUnavailable, actual: content.StatusCode);
+    Assert.Equal (expected: "ERROR: configuration unavailable",      actual: content.Content);
+  }
+
+  [Fact]
   public async Task RunAsync_ReturnsBadGateway_WhenRequestFailedException ()
   {
     var config         = new DyndnsConfig { Zones = { ["example.com"] = new ZoneConfig { Ttl = 300 }, }, };
@@ -271,9 +290,10 @@ public sealed class UpdateDnsFunctionTests
                                                    bool             isAuthorized,
                                                    bool             isRecordAuthorized = true,
                                                    UpdateDnsResult? dnsUpdateResult    = null,
-                                                   Exception?       dnsUpdateException = null)
+                                                   Exception?       dnsUpdateException = null,
+                                                   Exception?       configException    = null)
   {
-    IConfigProvider configProvider = new StaticConfigProvider (config);
+    IConfigProvider configProvider = new StaticConfigProvider (config: config, exception: configException);
     IAuthService    authService    = new StubAuthService (isAuthorized: isAuthorized, isRecordAuthorized: isRecordAuthorized);
     IIpResolver     ipResolver     = new IpResolver ();
     IDnsUpdateService dnsUpdateService = dnsUpdateResult is not null || dnsUpdateException is not null

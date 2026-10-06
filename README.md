@@ -95,7 +95,8 @@ Responses are plain text and stable for client compatibility:
 - Invalid credentials: HTTP `401`
 - Unauthorized record: HTTP `403`
 - Azure DNS backend failure: HTTP `502`
-- Server/configuration failure: HTTP `500`
+- Server/configuration failure (missing required app settings): HTTP `500`
+- Configuration file missing, unreadable or malformed: HTTP `503` with `ERROR: configuration unavailable`
 
 Checks run in this order: required parameters (`400`), credentials (`401`), record authorization (`403`), then
 that the zone is present in `config/dyndns.json` (`400 ERROR: zone not configured`). The zone check comes last so
@@ -110,7 +111,8 @@ Responses are plain text per DynDNS v2 specification:
 | `good <ip>` | 200 | Update succeeded |
 | `badauth` | 401 | Credentials missing or invalid |
 | `nohost` | 200 | FQDN not resolvable to a configured zone/record, or record not authorized |
-| `911` | 200 | Server-side error (configuration or DNS update failure) |
+| `911` | 200 | Server-side error (app-setting misconfiguration, unresolvable IP, or DNS update failure) |
+| `911` | 503 | Configuration file (`config/dyndns.json`) missing, unreadable or malformed |
 
 > **Note**: `nohost` is returned for both missing and unauthorized records to avoid leaking information about configured zones.
 

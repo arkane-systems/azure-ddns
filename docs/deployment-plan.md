@@ -161,6 +161,7 @@ Expected behavior:
 - `ERROR: invalid credentials` -> client name/hash mismatch.
 - `ERROR: dns update failed` -> missing/incorrect RBAC or DNS resource reference issues.
 - `ERROR: server configuration invalid` -> missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.).
+- `503` (`ERROR: configuration unavailable` on `/api/update`; `911` on `/api/nic/update`) -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; check the app log for the path and parse error.
 
 ## 10) Suggested ongoing operations
 
