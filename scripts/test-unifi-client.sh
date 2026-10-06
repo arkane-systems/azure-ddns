@@ -1,5 +1,5 @@
 #!/bin/sh
-# End-to-end test of unifi-client/arkane-ddns-client.py against the software it runs with on Unifi gateways:
+# End-to-end test of unifi-client (the client script and install.sh) against the software it runs with on Unifi gateways:
 # CPython 2.7.18 and curl 7.74.0 (both as shipped in Debian bullseye), talking to a local HTTPS server that
 # plays the DDNS API (DynDNS v2, HTTP Basic auth). Only `ip` is faked (to report a WAN address).
 #
@@ -136,10 +136,21 @@ grep -q 'myip=fd12\|myip=2a02:1234:5678:0:\|myip=2001:db8' /tmp/out/server.log &
 grep -q '"ipv4": "203.0.113.5"' "$CACHE" || fail "IPv4 not cached"
 grep -q '"ipv6": "2a02:1234:5678::5"' "$CACHE" || fail "IPv6 not cached"
 
-echo "--- run 2: nothing changed, no API call"
+echo "--- run 2: nothing changed, no API call, cache file not rewritten"
 : > /tmp/out/server.log
+CACHE_STAMP_BEFORE=$(stat -c %y "$CACHE")
+sleep 1
 python /client/arkane-ddns-client.py /tmp/test.conf
 test ! -s /tmp/out/server.log || fail "unexpected API call"
+test "$(stat -c %y "$CACHE")" = "$CACHE_STAMP_BEFORE" || fail "cache was rewritten although nothing changed"
+
+echo "--- run 2b: cache directory wiped (as after a Unifi update) -> recreated, address reported again"
+rm -rf /var/cache/arkane-ddns-client
+: > /tmp/out/server.log
+python /client/arkane-ddns-client.py /tmp/test.conf
+grep -q 'myip=203.0.113.5 auth=ok' /tmp/out/server.log || fail "no update after the cache was wiped"
+test -f "$CACHE" || fail "cache file not recreated"
+test "$(stat -c %a /var/cache/arkane-ddns-client)" = "700" || fail "cache directory not recreated with mode 700"
 
 echo "--- run 3: wrong key -> badauth, cache must not advance"
 rm "$CACHE"
@@ -155,5 +166,48 @@ rm "$CACHE"
 write_config 'p@ss"w&rd\x'
 python /client/arkane-ddns-client.py /tmp/test.conf
 grep -q '203.0.113.5' "$CACHE" && fail "cache advanced after connection failure"
+
+echo "--- install.sh refuses to run without /data (not a Unifi OS device)"
+# (/data does not exist in this container yet)
+if bash /client/install.sh /client >/tmp/out/install_nodata.log 2>&1; then fail "install.sh ran without /data"; fi
+grep -q '/data does not exist' /tmp/out/install_nodata.log || fail "install.sh gave no explanation without /data"
+
+echo "--- install.sh: fresh install lands in /data, units point there"
+mkdir -p /data
+printf '#!/bin/sh\nexit 0\n' > /fakebin/systemctl
+chmod +x /fakebin/systemctl
+bash /client/install.sh /client >/tmp/out/install_fresh.log 2>&1 || { cat /tmp/out/install_fresh.log; fail "fresh install failed"; }
+test -f /data/arkane-ddns-client/arkane-ddns-client.py || fail "script not installed in /data"
+test -f /data/arkane-ddns-client/arkane-ddns-client.conf || fail "config template not installed in /data"
+test -f /data/arkane-ddns-client/README.md || fail "README not installed in /data"
+test "$(stat -c %a /data/arkane-ddns-client)" = "700" || fail "install dir is not mode 700"
+test "$(stat -c %a /data/arkane-ddns-client/arkane-ddns-client.conf)" = "600" || fail "config is not mode 600"
+test -f /etc/systemd/system/arkane-ddns-client.service || fail "service unit missing"
+test -f /etc/systemd/system/arkane-ddns-client.timer || fail "timer unit missing"
+grep -q '^ExecStart=/usr/bin/env python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf$' /etc/systemd/system/arkane-ddns-client.service || fail "service ExecStart does not use /data"
+grep -q '^CacheDirectory=arkane-ddns-client$' /etc/systemd/system/arkane-ddns-client.service || fail "service does not declare CacheDirectory"
+# Comments may mention /usr/local (to explain why it is not used); no active setting may.
+if cat /etc/systemd/system/arkane-ddns-client.service /etc/systemd/system/arkane-ddns-client.timer | grep -v '^#' | grep -q '/usr/local'; then fail "a unit setting still references /usr/local"; fi
+# The installed script runs from its new home (no config path given -> reports a config error and exits 1).
+if python /data/arkane-ddns-client/arkane-ddns-client.py /nonexistent.conf; then fail "installed script should reject a missing config"; fi
+
+echo "--- install.sh: upgrade migrates the old /usr/local config and removes the old files"
+rm -rf /data/arkane-ddns-client
+mkdir -p /usr/local/bin /usr/local/etc/arkane-ddns-client
+printf '#!/bin/sh\n' > /usr/local/bin/arkane-ddns-client.py
+printf '[api]\nclient = migrated-marker\n' > /usr/local/etc/arkane-ddns-client.conf
+chmod 600 /usr/local/etc/arkane-ddns-client.conf
+printf 'old docs\n' > /usr/local/etc/arkane-ddns-client/README.md
+bash /client/install.sh /client >/tmp/out/install_upgrade.log 2>&1 || { cat /tmp/out/install_upgrade.log; fail "upgrade install failed"; }
+grep -q 'migrated-marker' /data/arkane-ddns-client/arkane-ddns-client.conf || fail "old config was not migrated"
+test "$(stat -c %a /data/arkane-ddns-client/arkane-ddns-client.conf)" = "600" || fail "migrated config is not mode 600"
+test ! -e /usr/local/bin/arkane-ddns-client.py || fail "old script not removed"
+test ! -e /usr/local/etc/arkane-ddns-client.conf || fail "old config not removed"
+test ! -e /usr/local/etc/arkane-ddns-client || fail "old docs not removed"
+
+echo "--- install.sh: re-running keeps an existing config untouched"
+printf '[api]\nclient = kept-marker\n' > /data/arkane-ddns-client/arkane-ddns-client.conf
+bash /client/install.sh /client >/tmp/out/install_rerun.log 2>&1 || fail "re-run failed"
+grep -q 'kept-marker' /data/arkane-ddns-client/arkane-ddns-client.conf || fail "re-run overwrote the config"
 
 echo "ALL UNIFI CLIENT CHECKS PASSED"

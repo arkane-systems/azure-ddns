@@ -1,6 +1,6 @@
 [Unit]
 Description=Run Arkane DDNS Client every 5 minutes
-Documentation=file:///usr/local/etc/arkane-ddns-client/README.md
+Documentation=file:///data/arkane-ddns-client/README.md
 Requires=arkane-ddns-client.service
 
 [Timer]

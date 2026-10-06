@@ -1,18 +1,23 @@
 [Unit]
 Description=Arkane DDNS Client for Unifi Gateway
-Documentation=file:///usr/local/etc/arkane-ddns-client/README.md
+Documentation=file:///data/arkane-ddns-client/README.md
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf
+# Run through the interpreter so the script's exec bit (or a noexec mount) does not matter. Everything the client
+# needs lives under /data/arkane-ddns-client, which survives Unifi software updates (unlike /usr/local).
+ExecStart=/usr/bin/env python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf
 StandardOutput=journal
 StandardError=journal
 User=root
 # Protect against accidental execution with wrong config
 ProtectHome=yes
 ProtectSystem=strict
-ReadWritePaths=/var/cache/arkane-ddns-client
+# systemd creates /var/cache/arkane-ddns-client (mode 0700) before every start and makes it writable despite
+# ProtectSystem=strict. Unlike ReadWritePaths=, this also works when the directory has been wiped.
+CacheDirectory=arkane-ddns-client
+CacheDirectoryMode=0700
 
 # Restart on failure with backoff
 Restart=on-failure

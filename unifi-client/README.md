@@ -72,7 +72,7 @@ Once files are installed, log into your gateway and edit the configuration:
 
 ```bash
 ssh root@192.168.1.1
-vi /usr/local/etc/arkane-ddns-client.conf
+vi /data/arkane-ddns-client/arkane-ddns-client.conf
 ```
 
 Set your values:
@@ -101,14 +101,14 @@ debug = false
 Run the script manually to verify configuration:
 
 ```bash
-sudo /usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf
+sudo python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf
 ```
 
 
 Run the script manually to verify configuration:
 
 ```bash
-sudo /usr/local/bin/arkane-ddns-client.py /usr/local/etc/arkane-ddns-client.conf
+sudo python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf
 ```
 
 Check for errors or success in the output. Enable debug mode in the config to see more detail:
@@ -196,13 +196,39 @@ sudo bash /root/arkane-ddns-client-staging/install.sh /path/to/files
 
 **What it does:**
 
-1. Creates `/var/cache/arkane-ddns-client/` with restricted permissions
-2. Copies Python script to `/usr/local/bin/` and makes it executable
-3. Copies config template to `/usr/local/etc/` (if not already present)
-4. Copies systemd units to `/etc/systemd/system/`
-5. Copies documentation to `/usr/local/etc/arkane-ddns-client/`
+1. Creates `/data/arkane-ddns-client/` (mode 700) and copies the Python script and the documentation into it
+2. Creates the configuration file there: keeps an existing one, **migrates one from the old `/usr/local/etc/` location**, or installs the template
+3. Removes any files left by earlier versions under `/usr/local/`
+4. Creates `/var/cache/arkane-ddns-client/` (mode 700) for the cache
+5. Copies systemd units to `/etc/systemd/system/`
 6. Reloads the systemd daemon
 7. Cleans up the staging directory (if applicable)
+
+It refuses to run if `/data` does not exist (that would not be a Unifi OS device).
+
+### Where files live (and why)
+
+Unifi software updates rebuild the gateway's root filesystem. Anything outside the persistent areas is wiped,
+including `/usr/local`, where earlier versions of this client installed itself. `/data` and `/etc` persist
+(this is the convention the community UniFi OS persistence tooling, such as
+[unifi-utilities](https://github.com/unifi-utilities/unifios-utilities), relies on), so:
+
+| What | Where | Survives a Unifi update? |
+|---|---|---|
+| Script, configuration (contains your API key), documentation | `/data/arkane-ddns-client/` | Yes |
+| systemd service and timer units | `/etc/systemd/system/` | Yes |
+| Last-known-address cache | `/var/cache/arkane-ddns-client/` | Not guaranteed, and it does not need to |
+
+The cache is disposable: if it is lost, the next run simply reports the current address again (the server
+answers `nochg` if nothing changed). The directory is recreated automatically, both by systemd
+(`CacheDirectory=` in the service unit) and by the script itself when run by hand.
+
+### Upgrading from an earlier install (under `/usr/local`)
+
+Copy the new files over and run `install.sh` again (`copy-to-gateway.sh <gateway> --install` does both). It moves
+your existing configuration to `/data/arkane-ddns-client/`, removes the old copies, and rewrites the units to point at
+the new location. The timer keeps running; nothing needs to be re-enabled. If a Unifi update has already wiped
+`/usr/local`, your configuration is gone with it and `install.sh` will install the template for you to edit again.
 
 ## Configuration Reference
 
@@ -242,7 +268,7 @@ If multiple global addresses exist, only the first of each family is used. This 
 
 ### Change Detection
 
-The script caches the last-known IPv4 and IPv6 addresses in `/var/cache/arkane-ddns-client/cache.json`. On each run:
+The script caches the last-known IPv4 and IPv6 addresses in `/var/cache/arkane-ddns-client/cache.json` (recreated if missing; rewritten only when it changes). On each run:
 1. Read current addresses from the interface
 2. Load the cache
 3. Compare: if different and enabled, call the API
@@ -329,11 +355,11 @@ Run with debug enabled:
 
 ```bash
 # Edit config temporarily
-sudo vi /usr/local/etc/arkane-ddns-client.conf
+sudo vi /data/arkane-ddns-client/arkane-ddns-client.conf
 # Set: debug = true
 
 # Run manually
-sudo /usr/local/bin/arkane-ddns-client.py
+sudo python /data/arkane-ddns-client/arkane-ddns-client.py /data/arkane-ddns-client/arkane-ddns-client.conf
 
 # Check output
 sudo journalctl -u arkane-ddns-client -n 50
@@ -395,7 +421,7 @@ The script is lightweight:
 
 ## Security Notes
 
-1. **Config file permissions**: Always keep `/usr/local/etc/arkane-ddns-client.conf` readable only by root (`chmod 600`). It contains your raw API key.
+1. **Config file permissions**: Always keep `/data/arkane-ddns-client/arkane-ddns-client.conf` readable only by root (`chmod 600`). It contains your raw API key.
 2. **Key in logs**: The script never logs the raw key, but take care not to enable system-wide debugging or share journal output carelessly.
 3. **HTTPS only**: The script always uses HTTPS for API calls. Do not use unencrypted HTTP endpoints in production.
 

@@ -68,13 +68,28 @@ def read_cache():
         return {}
 
 
-def write_cache(cache):
-    """Write cached IPs to file."""
+def write_cache(cache, previous_cache=None):
+    """Write cached IPs to file.
+
+    The cache directory is recreated if it has gone missing (it is disposable: losing it only costs one
+    redundant update). The write is skipped when nothing changed since `previous_cache` was read, which
+    avoids rewriting flash storage every few minutes, and is done via a temporary file and rename so a
+    crash can never leave a truncated cache behind.
+    """
+    if previous_cache is not None and cache == previous_cache and os.path.exists(CACHE_FILE):
+        debug('Cache unchanged; not rewriting')
+        return
+
+    if not ensure_cache_dir():
+        return
+
+    tmp_file = CACHE_FILE + '.tmp'
     try:
-        with open(CACHE_FILE, 'w') as f:
+        with open(tmp_file, 'w') as f:
             json.dump(cache, f)
-            debug('Wrote cache: {}'.format(cache))
-    except IOError as e:
+        os.rename(tmp_file, CACHE_FILE)
+        debug('Wrote cache: {}'.format(cache))
+    except (IOError, OSError) as e:
         log('error', 'Failed to write cache file {}: {}'.format(CACHE_FILE, e))
 
 
@@ -238,8 +253,10 @@ def main():
         api_endpoint, client_name, zone, record, wan_interface))
     
     # Ensure cache directory exists
+    # The cache is disposable: if its directory cannot be created, carry on without one (every run then
+    # simply reports the current address; the server answers "nochg" when nothing has changed).
     if not ensure_cache_dir():
-        sys.exit(1)
+        log('error', 'Continuing without a cache; the cache directory could not be created')
     
     # Get current IPs
     current_ipv4, current_ipv6 = get_interface_addresses(wan_interface)
@@ -287,7 +304,7 @@ def main():
             debug('No valid IPv6 address found')
     
     # Write updated cache
-    write_cache(new_cache)
+    write_cache(new_cache, cache)
     
     if updated:
         log('info', 'Update complete: changes detected and API calls made')
@@ -301,7 +318,7 @@ if __name__ == '__main__':
     syslog.openlog('arkane-ddns-client', syslog.LOG_PID, syslog.LOG_USER)
     
     # Get config file path from argument or environment
-    CONFIG_FILE = sys.argv[1] if len(sys.argv) > 1 else '/usr/local/etc/arkane-ddns-client.conf'
+    CONFIG_FILE = sys.argv[1] if len(sys.argv) > 1 else '/data/arkane-ddns-client/arkane-ddns-client.conf'
     ENABLE_DEBUG = False
     
     try:
