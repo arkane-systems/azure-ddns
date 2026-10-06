@@ -159,8 +159,12 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         version: '10.0'
       }
       scaleAndConcurrency: {
-        // A DDNS service needs very little scale; a low cap bounds cost if the anonymous endpoint is abused.
-        maximumInstanceCount: 5
+        // Keep this at the Flex Consumption default (40). A cap of 5 was tried and caused intermittent stalls: roughly
+        // 3-10% of requests hung or waited 5-20 s (retries in multiples of 5 s) for several hours after a deploy, and
+        // 200/200 requests were clean once the cap was raised back to 40. A low cap leaves the platform no headroom while it
+        // replaces instances. Cost exposure is not a reason to lower it: Flex bills for execution time and a rejected
+        // request takes a few milliseconds.
+        maximumInstanceCount: 40
         instanceMemoryMB: 512
       }
       deployment: {
