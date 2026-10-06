@@ -81,9 +81,9 @@ public sealed class IpResolverTests
     {
         HttpRequest request = CreateRequest (remoteIp: "203.0.113.10");
 
-        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "2001:db8::1");
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "203.0.113.99");
 
-        Assert.Equal (expected: IPAddress.Parse ("2001:db8::1"), actual: result.EffectiveIp);
+        Assert.Equal (expected: IPAddress.Parse ("203.0.113.99"), actual: result.EffectiveIp);
         Assert.True (result.ExplicitIpMismatch);
     }
 
@@ -92,9 +92,42 @@ public sealed class IpResolverTests
     {
         HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "198.51.100.25");
 
-        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "2001:db8::1");
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "198.51.100.99");
 
         Assert.Equal (expected: IPAddress.Parse ("198.51.100.25"), actual: result.SourceIp);
+        Assert.True (result.ExplicitIpMismatch);
+    }
+
+    [Fact]
+    public void Resolve_DoesNotFlagMismatch_WhenExplicitIpMatchesSourceIp ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "198.51.100.25");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "198.51.100.25");
+
+        Assert.False (result.ExplicitIpMismatch);
+    }
+
+    [Theory]
+    [InlineData ("198.51.100.25", "2a02:1234::5")]   // IPv4 source, IPv6 explicit: a dual-stack client updating AAAA over IPv4
+    [InlineData ("2a02:1234::5", "198.51.100.25")]   // IPv6 source, IPv4 explicit
+    public void Resolve_DoesNotFlagMismatch_WhenSourceAndExplicitIpAreDifferentFamilies (string forwardedFor, string explicitIp)
+    {
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: forwardedFor);
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: explicitIp);
+
+        Assert.Equal (expected: IPAddress.Parse (explicitIp), actual: result.EffectiveIp);
+        Assert.False (result.ExplicitIpMismatch);
+    }
+
+    [Fact]
+    public void Resolve_FlagsMismatch_ForDifferentIpv6AddressesOfTheSameFamily ()
+    {
+        HttpRequest request = CreateRequest (remoteIp: "10.0.0.4", forwardedFor: "2a02:1234::5");
+
+        IpResolutionResult result = this._resolver.Resolve (request: request, explicitIp: "2a02:1234::99");
+
         Assert.True (result.ExplicitIpMismatch);
     }
 
