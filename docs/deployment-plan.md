@@ -160,7 +160,7 @@ Expected behavior:
 
 - `badauth` (401) -> client name/hash mismatch, or no usable `Authorization: Basic` header.
 - `nohost` -> hostname not under a configured zone, or the client is not allowed to update that record.
-- `911` (200) -> server-side failure: missing/incorrect RBAC or DNS resource reference, managed identity unavailable, missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.), or an unusable `myip`; check the app log.
+- `911` (200) -> server-side failure: missing/incorrect RBAC or DNS resource reference, managed identity unavailable, missing required settings (`DNS_SUBSCRIPTION_ID`, `DNS_RESOURCE_GROUP`, etc.), an unusable `myip`, or an address refused as not publicly routable (private, loopback, link-local, ULA, ...); check the app log.
 - `911` with HTTP `503` -> `config/dyndns.json` missing from the package, unreadable, or invalid JSON; check the app log for the path and parse error.
 
 ## 10) Suggested ongoing operations

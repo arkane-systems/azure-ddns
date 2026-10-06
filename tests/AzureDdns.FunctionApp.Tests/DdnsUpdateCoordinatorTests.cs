@@ -208,6 +208,53 @@ public sealed class DdnsUpdateCoordinatorTests
     Assert.Null (dns.WrittenAddress);
   }
 
+  [Theory]
+  [InlineData ("192.168.1.10")]
+  [InlineData ("10.0.0.5")]
+  [InlineData ("127.0.0.1")]
+  [InlineData ("169.254.3.4")]
+  [InlineData ("0.0.0.0")]
+  [InlineData ("fd12:3456:789a::1")]
+  [InlineData ("fe80::1")]
+  [InlineData ("::1")]
+  public async Task UpdateAsync_RefusesToPublishNonPublicExplicitAddress (string explicitIp)
+  {
+    var dns = new RecordingDnsUpdateService ();
+
+    DdnsUpdateResult result = await CreateCoordinator (dns).UpdateAsync (CreateRequest (explicitIp: explicitIp));
+
+    Assert.Equal (expected: DdnsUpdateStatus.AddressNotPubliclyRoutable, actual: result.Status);
+    Assert.Null (dns.WrittenAddress);
+  }
+
+  [Fact]
+  public async Task UpdateAsync_RefusesToPublishAnInternalSourceAddress_WhenNoForwardingHeaderIdentifiesTheCaller ()
+  {
+    // No explicit IP, and the only visible peer is a private proxy hop with no X-Forwarded-For: the old behavior
+    // would have written the proxy's private address to DNS.
+    var dns = new RecordingDnsUpdateService ();
+
+    DdnsUpdateResult result = await CreateCoordinator (dns).UpdateAsync (CreateRequest (explicitIp: null, remoteIp: "10.1.2.3"));
+
+    Assert.Equal (expected: DdnsUpdateStatus.AddressNotPubliclyRoutable, actual: result.Status);
+    Assert.Null (dns.WrittenAddress);
+  }
+
+  [Theory]
+  [InlineData ("203.0.113.10")]   // documentation range: allowed (the smoke test uses these)
+  [InlineData ("2001:db8::1")]
+  [InlineData ("8.8.8.8")]
+  [InlineData ("2a02:1234:5678::5")]
+  public async Task UpdateAsync_PublishesPubliclyRoutableAndDocumentationAddresses (string explicitIp)
+  {
+    var dns = new RecordingDnsUpdateService ();
+
+    DdnsUpdateResult result = await CreateCoordinator (dns).UpdateAsync (CreateRequest (explicitIp: explicitIp));
+
+    Assert.True (result.IsSuccess);
+    Assert.Equal (expected: IPAddress.Parse (explicitIp), actual: dns.WrittenAddress);
+  }
+
   [Fact]
   public async Task UpdateAsync_FallsBackToSourceIp_WhenNoExplicitIp ()
   {

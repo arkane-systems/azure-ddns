@@ -73,6 +73,16 @@ Notes:
 - `Forwarded`, `X-Original-For` and `X-Real-IP` are captured for diagnostics only and never used to choose the IP.
 - IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) are converted to the IPv4 address they represent, both for `myip`
   and for the source IP, so they update the `A` record rather than writing a bogus `AAAA` record.
+- Addresses that cannot work in public DNS are refused with `911` and a warning in the log (naming the reason, the
+  explicit address and the source IP), whether they arrive as `myip` or are taken from the source IP. Refused: IPv4
+  unspecified/"this network" (`0/8`), private (`10/8`, `172.16/12`, `192.168/16`), carrier-grade NAT (`100.64/10`),
+  loopback, link-local (`169.254/16`), IETF protocol assignments (`192.0.0/24`), benchmarking (`198.18/15`), multicast
+  and reserved/broadcast (`224/4`, `240/4`); and any IPv6 address outside global unicast (`2000::/3`), which excludes
+  unique-local, link-local, loopback and multicast. This stops, for example, a router reporting its LAN address, or the
+  app seeing only an internal proxy hop because no forwarding header arrived, from silently publishing a broken
+  record. The documentation ranges (`192.0.2/24`, `198.51.100/24`, `203.0.113/24`, `2001:db8::/32`, `3fff::/20`) are
+  deliberately allowed because they can never misdirect traffic and the smoke test publishes addresses from them.
+  The policy lives in `Services/AddressPolicy.cs`.
 - An explicit address that is not a valid IP address is rejected (`911`). If the source IP cannot be determined and
   no explicit address was given, the request fails the same way.
 - If an explicit address differs from the resolved source IP, the update still proceeds (the client is authenticated

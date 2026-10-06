@@ -61,6 +61,12 @@ public enum DdnsUpdateStatus
   /// <summary>The effective IP address could not be determined or was not a usable address.</summary>
   InvalidAddress,
 
+  /// <summary>
+  ///   The effective address is valid but not one that belongs in public DNS (private, loopback, link-local,
+  ///   multicast, ...). See <see cref="AddressPolicy" />.
+  /// </summary>
+  AddressNotPubliclyRoutable,
+
   /// <summary>Azure DNS (or the credential used to reach it) rejected or failed the write.</summary>
   DnsUpdateFailed,
 
@@ -116,7 +122,7 @@ public interface IDdnsUpdateCoordinator
 /// <inheritdoc cref="IDdnsUpdateCoordinator" />
 /// <remarks>
 ///   Order of checks: load config -> authenticate -> resolve hostname -> authorize -> resolve IP ->
-///   find zone settings -> write DNS. Authentication comes before hostname resolution so that an
+///   check the address is publishable -> find zone settings -> write DNS. Authentication comes before hostname resolution so that an
 ///   unauthenticated caller learns nothing about which hostnames or zones are configured.
 /// </remarks>
 public sealed class DdnsUpdateCoordinator (
@@ -195,6 +201,23 @@ public sealed class DdnsUpdateCoordinator (
                               LogSanitizer.Sanitize (request.ExplicitIp));
 
       return new DdnsUpdateResult (DdnsUpdateStatus.InvalidAddress);
+    }
+
+    // Refuse to publish an address that cannot work in public DNS. This catches both a client reporting a LAN
+    // address and the fallback case where only an internal proxy hop was visible as the source.
+    string? rejection = AddressPolicy.RejectionReason (ipResolution.EffectiveIp);
+
+    if (rejection is not null)
+    {
+      this.logger.LogWarning (message: "Refusing to publish {IpAddress} for {Hostname} (client {Client}): {Reason}. Source IP was {SourceIp}; explicit IP was {ExplicitIp}.",
+                              ipResolution.EffectiveIp,
+                              LogSanitizer.Sanitize (hostname),
+                              LogSanitizer.Sanitize (client.Name),
+                              rejection,
+                              ipResolution.SourceIp,
+                              LogSanitizer.Sanitize (request.ExplicitIp));
+
+      return new DdnsUpdateResult (DdnsUpdateStatus.AddressNotPubliclyRoutable);
     }
 
     IpDiagnosticsLog.LogExplicitIpMismatch (logger: this.logger,
