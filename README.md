@@ -219,7 +219,8 @@ Security notes:
 
 ## Manual deployment from a repository clone
 
-Use these steps when deploying without GitHub Actions.
+Use these steps to deploy. Deployment is intentionally manual: the repository's only GitHub Actions workflow
+(`.github/workflows/ci.yml`) builds and tests pull requests, checks that the Bicep templates compile, and does not deploy.
 
 ### Prerequisites
 
