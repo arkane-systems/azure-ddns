@@ -67,12 +67,13 @@ var functionPlanNameResolved = empty(functionPlanName) ? functionPlanNameDerived
 // Static deployment values.
 var deploymentStorageContainerName = 'function-releases'
 var storageBlobDataOwnerRoleDefinitionId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
-
-// Connection string for AzureWebJobsStorage app setting.
-// This project currently uses connection-string mode rather than identity-based storage settings.
-var azureWebJobsStorageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+var storageTableDataContributorRoleDefinitionId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 
 // Storage account used by the Functions host/runtime and deployment package source.
+// Access is identity-only: the Function App's managed identity is granted data-plane roles below (AzureWebJobsStorage
+// uses the AzureWebJobsStorage__accountName / __credential settings, and the deployment container uses
+// SystemAssignedIdentity), and shared-key (account key / connection string / SAS signed with the key) access is disabled
+// so there is no long-lived secret to leak. If a tool you use needs a key, set allowSharedKeyAccess back to true.
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountNameResolved
   location: location
@@ -85,6 +86,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     allowBlobPublicAccess: false
     minimumTlsVersion: 'TLS1_2'
     defaultToOAuthAuthentication: true
+    allowSharedKeyAccess: false
   }
 }
 
@@ -139,6 +141,11 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   name: functionAppNameResolved
   location: location
   kind: 'functionapp,linux'
+  // The Azure portal links a function app to its Application Insights resource through this hidden tag. The portal adds it
+  // when you connect them; declaring it here stops a redeploy from silently removing the link.
+  tags: {
+    'hidden-link: /app-insights-resource-id': applicationInsights.id
+  }
   identity: {
     type: 'SystemAssigned'
   }
@@ -196,9 +203,15 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'ALLOW_DOCUMENTATION_ADDRESSES'
           value: string(allowDocumentationAddresses)
         }
+        // Identity-based host storage: no account key in app settings. The host reaches blob/queue/table endpoints
+        // of this account as the app's system-assigned managed identity (roles are assigned below).
         {
-          name: 'AzureWebJobsStorage'
-          value: azureWebJobsStorageConnectionString
+          name: 'AzureWebJobsStorage__accountName'
+          value: storageAccount.name
+        }
+        {
+          name: 'AzureWebJobsStorage__credential'
+          value: 'managedidentity'
         }
       ]
     }
@@ -208,12 +221,24 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   ]
 }
 
-// Grants Function App identity access to deployment/runtime storage container data plane.
+// Grants Function App identity access to the storage account's blob data plane. Storage Blob Data Owner is the minimum
+// role the Functions host needs for AzureWebJobsStorage (singleton locks, keys) and also covers the deployment container.
 resource deploymentStorageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, functionApp.id, storageBlobDataOwnerRoleDefinitionId)
   scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleDefinitionId)
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Lets the host persist diagnostic events in Table storage. Without it the host logs warnings that it cannot write them.
+resource hostTableRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, storageTableDataContributorRoleDefinitionId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageTableDataContributorRoleDefinitionId)
     principalId: functionApp.identity.principalId
     principalType: 'ServicePrincipal'
   }

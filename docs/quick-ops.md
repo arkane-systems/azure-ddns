@@ -56,7 +56,7 @@ Confirm these are present on the Function App:
 - `DNS_SUBSCRIPTION_ID`
 - `DNS_RESOURCE_GROUP`
 - `CONFIG_PATH` (expected `config/dyndns.json`)
-- `AzureWebJobsStorage`
+- `AzureWebJobsStorage__accountName` and `AzureWebJobsStorage__credential` (`managedidentity`) — no `AzureWebJobsStorage` connection string
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
 - `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
 - `ALLOW_DOCUMENTATION_ADDRESSES` (expected `true` unless you deliberately refuse documentation ranges)
@@ -64,7 +64,7 @@ Confirm these are present on the Function App:
 ## 5) Verify identity and RBAC
 
 - Function App system-assigned identity must exist.
-- Storage role assignment should exist for deployment/runtime storage access.
+- Storage role assignments should exist for the function identity on the storage account: Storage Blob Data Owner (host + deployment) and Storage Table Data Contributor (host diagnostics). Role changes can take a few minutes to take effect; a host that cannot reach storage at first start usually recovers once they do.
 - DNS role assignment behavior:
   - if `dnsZoneNames` is empty: no automatic zone-scoped DNS assignments are created
   - if `dnsZoneNames` is populated: `DNS Zone Contributor` is assigned per listed zone

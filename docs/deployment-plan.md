@@ -44,7 +44,7 @@ From `infra/main.bicep`:
 4. Application Insights (workspace-based)
 5. Flex Consumption plan (`FC1`)
 6. Function App (Linux, `dotnet-isolated` runtime)
-7. Storage Blob Data Owner role assignment for function managed identity on storage account
+7. Storage Blob Data Owner and Storage Table Data Contributor role assignments for the function managed identity on the storage account (the host uses identity-based `AzureWebJobsStorage`; the account has shared-key access disabled)
 8. Optional DNS Zone Contributor role assignments per DNS zone (when `dnsZoneNames` is populated)
 
 ## 3) Parameter reference (`infra/main.parameters.json`)
@@ -79,7 +79,7 @@ These are set in `siteConfig.appSettings` during deployment:
 - `DNS_SUBSCRIPTION_ID`
 - `DNS_RESOURCE_GROUP`
 - `CONFIG_PATH` (`config/dyndns.json`)
-- `AzureWebJobsStorage`
+- `AzureWebJobsStorage__accountName` (the storage account name) and `AzureWebJobsStorage__credential` (`managedidentity`); there must be **no** `AzureWebJobsStorage` connection string
 - `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` (expected `false`)
 - `ALLOW_DOCUMENTATION_ADDRESSES` (expected `true` unless you deliberately refuse documentation ranges)
 
