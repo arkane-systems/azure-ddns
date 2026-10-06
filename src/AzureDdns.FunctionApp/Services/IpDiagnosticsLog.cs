@@ -27,7 +27,7 @@ namespace AzureDdns.FunctionApp.Services;
 /// </summary>
 /// <remarks>
 ///   <para>
-///     Every request logs a one-line summary of how the source IP was derived (peer address, trusted-proxy
+///     Every request logs a one-line summary of how the source IP was derived (peer address, known-proxy
 ///     decision, parsed and raw forwarding headers). When the
 ///     <c>LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS</c> setting is enabled, all request headers are logged as
 ///     well, with credential-bearing headers redacted.
@@ -91,11 +91,11 @@ public static class IpDiagnosticsLog
     IpResolutionDiagnostics diagnostics = resolution.Diagnostics;
 
     logger.LogInformation (message:
-                           "IP resolution diagnostics for {Target}: remote={RemoteIp}, source={SourceIp}, trustedProxyHop={TrustedProxyHop}, parsedForwardedFor={ParsedForwardedFor}, parsedClientIp={ParsedClientIp}, xForwardedFor={XForwardedFor}, forwarded={Forwarded}, xOriginalFor={XOriginalFor}, xRealIp={XRealIp}, clientIp={ClientIp}.",
+                           "IP resolution diagnostics for {Target}: remote={RemoteIp}, source={SourceIp}, knownProxyHop={KnownProxyHop}, parsedForwardedFor={ParsedForwardedFor}, parsedClientIp={ParsedClientIp}, xForwardedFor={XForwardedFor}, forwarded={Forwarded}, xOriginalFor={XOriginalFor}, xRealIp={XRealIp}, clientIp={ClientIp}.",
                            Sanitize (target),
                            diagnostics.RemoteIp,
                            resolution.SourceIp,
-                           diagnostics.TrustedProxyHop,
+                           diagnostics.KnownProxyHop,
                            diagnostics.ForwardedForIp,
                            diagnostics.ClientIp,
                            Sanitize (diagnostics.ForwardedForHeader),

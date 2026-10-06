@@ -63,14 +63,14 @@ Both endpoints share `Services/IpResolver.cs`. When the client supplies an expli
 `myip` on `/api/nic/update`) that address is used. Otherwise the *source IP* is derived as follows.
 
 The app normally sits behind Azure's front end, so the TCP peer seen by the function is an infrastructure address,
-not the caller. The resolver therefore treats the peer as a **trusted proxy hop** when its address is loopback,
+not the caller. The resolver therefore treats the peer as a **known proxy hop** when its address is loopback,
 RFC 1918 private (`10/8`, `172.16/12`, `192.168/16`), IPv4 link-local (`169.254/16`), or IPv6 link-local, site-local
 or unique-local (`fc00::/7`); IPv4-mapped IPv6 peers are unwrapped first.
 
 | Peer address | Source IP used |
 |---|---|
-| Not a trusted hop (public address) | The peer address itself; all forwarding headers are ignored, so a direct caller cannot spoof its address |
-| Trusted hop | First parseable entry of `X-Forwarded-For`, else the first parseable `CLIENT-IP` value, else the peer address |
+| Not a known hop (public address) | The peer address itself; all forwarding headers are ignored, so a direct caller cannot spoof its address |
+| Known hop | First parseable entry of `X-Forwarded-For`, else the first parseable `CLIENT-IP` value, else the peer address |
 
 Notes:
 
