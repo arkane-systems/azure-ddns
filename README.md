@@ -39,7 +39,7 @@ Two endpoint contracts are supported:
 5. Requested record is authorized for that client.
 6. Effective IP is resolved:
    - `ip` query value if provided and valid
-   - otherwise source IP from connection
+   - otherwise the resolved source IP (see [Source IP resolution](#source-ip-resolution))
 7. DNS update is sent to Azure DNS using managed identity.
 8. Plain-text response is returned for DDNS client compatibility.
 
@@ -53,9 +53,38 @@ Two endpoint contracts are supported:
 6. Requested record is authorized for that client.
 7. Effective IP is resolved:
    - `myip` query value if provided and valid
-   - otherwise source IP from connection
+   - otherwise the resolved source IP (see [Source IP resolution](#source-ip-resolution))
 8. DNS update is sent to Azure DNS using managed identity.
 9. DynDNS v2 plain-text response is returned.
+
+## Source IP resolution
+
+Both endpoints share `Services/IpResolver.cs`. When the client supplies an explicit address (`ip` on `/api/update`,
+`myip` on `/api/nic/update`) that address is used. Otherwise the *source IP* is derived as follows.
+
+The app normally sits behind Azure's front end, so the TCP peer seen by the function is an infrastructure address,
+not the caller. The resolver therefore treats the peer as a **trusted proxy hop** when its address is loopback,
+RFC 1918 private (`10/8`, `172.16/12`, `192.168/16`), IPv4 link-local (`169.254/16`), or IPv6 link-local, site-local
+or unique-local (`fc00::/7`); IPv4-mapped IPv6 peers are unwrapped first.
+
+| Peer address | Source IP used |
+|---|---|
+| Not a trusted hop (public address) | The peer address itself; all forwarding headers are ignored, so a direct caller cannot spoof its address |
+| Trusted hop | First parseable entry of `X-Forwarded-For`, else the first parseable `CLIENT-IP` value, else the peer address |
+
+Notes:
+
+- Forwarding-header entries may be `ip`, `ip:port`, or `[ipv6]:port`; the port is stripped. Unparseable entries are skipped.
+- `Forwarded`, `X-Original-For` and `X-Real-IP` are captured for diagnostics only and never used to choose the IP.
+- An explicit address that is not a valid IP address is rejected (`/api/update`: `400`; `/api/nic/update`: `911`).
+  If the source IP cannot be determined and no explicit address was given, the request fails the same way.
+- If an explicit address differs from the resolved source IP, the update still proceeds (the client is authenticated
+  and authorized) but a warning is logged on `/api/update`.
+- `/api/update` logs the resolution diagnostics (peer, parsed address, raw forwarding headers) on every request,
+  and warns if the source IP resolves to loopback, which usually means header forwarding is misconfigured.
+  Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header on `/api/update`
+  (`Authorization`, `Cookie`, `Set-Cookie`, `X-Functions-Key` and `x-ms-token-aad-access-token` are redacted).
+  `/api/nic/update` does not currently emit this logging.
 
 ## Response contract (`/api/update`)
 
@@ -148,7 +177,7 @@ For zone-apex records (e.g. `example.com` itself), use `"name": "@"` in `allowed
 | `AZURE_FUNCTIONS_ENVIRONMENT` | Recommended | Environment label (`Development`, `Production`, etc.) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Recommended | Application Insights connection |
 | `AzureWebJobsStorage` | Required in Azure | Functions host storage connection |
-| `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Yes | Enables/disables IP header logging' default is `false`. |
+| `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS` | Optional | Logs all request headers (sensitive ones redacted) on `/api/update` for IP diagnostics; default is `false`. See [Source IP resolution](#source-ip-resolution). |
 
 ### DDNS config file (`config/dyndns.json`)
 
