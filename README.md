@@ -100,7 +100,8 @@ Notes:
 - An explicit address that is not a valid IP address is rejected (`911`). If the source IP cannot be determined and
   no explicit address was given, the request fails the same way.
 - If an explicit address differs from the resolved source IP, the update still proceeds (the client is authenticated
-  and authorized) but a warning is logged.
+  and authorized) but a warning is logged. Only addresses of the same family are compared: a dual-stack client that
+  reaches the app over IPv4 and reports its IPv6 address is normal and is not flagged.
 - The resolution diagnostics are logged (peer, parsed address, raw forwarding headers) on every request,
   and warns if the source IP resolves to loopback, which usually means header forwarding is misconfigured.
   Setting `LOG_ALL_REQUEST_HEADERS_FOR_IP_DIAGNOSTICS=true` additionally logs every request header

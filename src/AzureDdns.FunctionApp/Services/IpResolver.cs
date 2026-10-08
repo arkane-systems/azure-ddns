@@ -52,7 +52,9 @@ public sealed class IpResolver : IIpResolver
   /// </summary>
   /// <remarks>
   ///   If <paramref name="explicitIp" /> is supplied and valid, it is used as the effective IP.
-  ///   When both explicit and source IP exist but differ, mismatch is flagged for auditing/logging.
+  ///   When both explicit and source IP exist but differ, mismatch is flagged for auditing/logging. Only addresses of
+  ///   the same family are compared: a dual-stack client that reaches the app over IPv4 and reports its IPv6 address
+  ///   (or the reverse) is normal, and an IPv4 source address says nothing about what its IPv6 address should be.
   /// </remarks>
   public IpResolutionResult Resolve (HttpRequest request, string? explicitIp)
   {
@@ -80,7 +82,9 @@ public sealed class IpResolver : IIpResolver
 
     parsedExplicitIp = Normalize (parsedExplicitIp)!;
 
-    bool mismatch = sourceIp is not null && !sourceIp.Equals (parsedExplicitIp);
+    bool mismatch = sourceIp is not null &&
+                    (sourceIp.AddressFamily == parsedExplicitIp.AddressFamily) &&
+                    !sourceIp.Equals (parsedExplicitIp);
 
     return new IpResolutionResult (EffectiveIp: parsedExplicitIp,
                                    SourceIp: sourceIp,
@@ -281,7 +285,10 @@ public sealed record IpResolutionDiagnostics (
 /// </summary>
 /// <param name="EffectiveIp">IP address selected for DNS update; <see langword="null" /> when resolution fails.</param>
 /// <param name="SourceIp">Remote source IP from the incoming request context.</param>
-/// <param name="ExplicitIpMismatch">Indicates caller-supplied IP differs from request source IP.</param>
+/// <param name="ExplicitIpMismatch">
+///   Indicates caller-supplied IP differs from the request source IP. Only meaningful when both are the same address
+///   family; addresses of different families are never reported as a mismatch.
+/// </param>
 /// <param name="Diagnostics">Network context captured while resolving effective and source IP values.</param>
 public sealed record IpResolutionResult (
   IPAddress?              EffectiveIp,
